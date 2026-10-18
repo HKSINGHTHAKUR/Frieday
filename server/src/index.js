@@ -91,22 +91,14 @@ async function main() {
         logger.info({ msg: 'scheduler stopped' });
       }
 
-      // Close MongoDB connection (awaited — previously fired-and-forgotten).
+      // Close MongoDB connection (awaited — Mongoose v8 close() returns a
+      // Promise and does not accept a callback).
       try {
         const mongoose = require('mongoose');
-        await new Promise((resolve) => {
-          mongoose.connection.close(false, (err) => {
-            if (err) {
-              logger.error({ msg: 'mongodb close error', code: err.code, operation: 'mongodb-close' });
-              hadError = true;
-            } else {
-              logger.info({ msg: 'mongodb connection closed' });
-            }
-            resolve();
-          });
-        });
+        await mongoose.connection.close(false);
+        logger.info({ msg: 'mongodb connection closed' });
       } catch (err) {
-        logger.error({ msg: 'mongodb close threw', error: err.message, operation: 'mongodb-close' });
+        logger.error({ msg: 'mongodb close error', code: err.code, operation: 'mongodb-close' });
         hadError = true;
       }
 

@@ -470,7 +470,7 @@ For this Docker/Express application, the simplest viable hosting option is a **m
 | `npm audit --omit=dev`                          | 0 High/Critical, 2 moderate (SEC-1 approved exception, NOT fixed)                     | 1 (advisories present)                            |
 | `docker build -t frieday .`                     | Exit 0, image built                                                                   | NOT VERIFIED (`docker` CLI not installed on host) |
 | `docker run ... && curl /api/health`            | `{"ok":true,...}`                                                                     | NOT VERIFIED (`docker` CLI not installed on host) |
-| `git grep -i "sk-\|ghp_\|BEGIN PRIVATE"`        | Clean (no secrets)                                                                    | NOT TESTED (no git repository in workspace)       |
+| `git grep -i "sk-\|ghp_\|BEGIN PRIVATE"`        | Clean (no secrets)                                                                    | PASS (workspace is now a git repo; scanned tracked files + history — CLEAN) |
 
 ### Files changed
 

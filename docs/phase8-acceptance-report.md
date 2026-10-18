@@ -1,7 +1,8 @@
 # Frieday — Phase 8 Acceptance & Security Report (Final Closure Run)
 
 > Task: T8.1 (Acceptance + edge-case test sweep) + T8.2 (Security audit + fixes).
-> Run date: 2026-10-17 (closure run). Executor: coding agent.
+> Run date: 2026-10-18 (master verification audit). Executor: coding agent.
+> Workspace commit: `21837cc1a92a5db2bbfed7a516cd95b705b9cc19` (branch `main`, origin `https://github.com/HKSINGHTHAKUR/Frieday.git`).
 > Companion: `docs/fresh-oauth-sync-audit.md`, `md files/tasks.md`.
 > Verdicts use PASS / FAIL / BLOCKED / ENVIRONMENT PENDING. BLOCKED items are never reported as PASS.
 > Historical totals from the interrupted Phase 8 agent (739 / 839 / 878 / 913) came from incomplete or
@@ -27,7 +28,7 @@
 
 ## 2. Environment used
 
-- Node v24.19.0, npm 11.17.0, Windows. **No Docker** (`docker` CLI absent — image build and container smoke/shutdown tests NOT VERIFIED, see §12).
+- Node v24.19.0, npm 11.17.0, Windows. **Docker Desktop 29.8.2 available** — Docker image build, container smoke/health and graceful-shutdown tests verified (see §3.6, §3.9).
 - MongoDB reachable at 127.0.0.1:27017 (local MongoDB Server 9.0, `mongod` process running).
 - Isolated test database `frieday_test_configdb`, verified separate from dev database `frieday`.
 - No production/staging deployment exists. No HTTPS deployment has occurred.
@@ -46,9 +47,9 @@
 | Fail      | **0**                                       |
 | Cancelled | 0                                           |
 | Skipped   | 1                                           |
-| Duration  | ~9.5 s                                      |
+| Duration  | 16.3 s (duration_ms 16315.6634) |
 | Exit code | **0**                                       |
-| Stability | Re-ran once: identical 937 / 0 / 1 / exit 0 |
+| Stability | Re-ran once on prior closure run: identical 937 / 0 / 1 / exit 0; this audit run: 937 / 0 / 1 / exit 0 |
 
 The single skip is `auth.test.js` "redirects to the login page with error=db_unavailable when persistence fails" — it is skipped **by design** because it requires MongoDB to be DOWN, and MongoDB is UP in this environment.
 
@@ -82,7 +83,20 @@ Two defects caused `node --test tests/auth.test.js` to hang after printing all r
 - A `shuttingDown` guard makes repeated SIGTERM/SIGINT a no-op (one coordinated shutdown).
 - `process.exit(0)` is called **only after** cleanup completes.
 
-**Process-level signal testing:** NOT executable on this host. Empirically confirmed that on Windows, `child_process.kill('SIGTERM')` and `child_process.kill('SIGINT')` force-terminate the Node process (exit code `null`, handler never invoked) — SIGTERM/SIGINT are uncatchable here. Therefore a real child-process SIGTERM/SIGINT graceful-shutdown test cannot be executed. The implementation above is verified by code inspection instead.
+**Process-level signal testing:** NOT executable on this host. Empirically confirmed that on Windows, `child_process.kill('SIGTERM')` and `child_process.kill('SIGINT')` force-terminate the Node process (exit code `null`, handler never invoked) — SIGTERM/SIGINT are uncatchable here. Therefore a real child-process SIGTERM/SIGINT graceful-shutdown test cannot be executed. The implementation was verified by:
+- Code inspection (Promise-based cleanup, bounded fallback, `shuttingDown` guard).
+- **Container-level graceful-shutdown test:** `docker stop --timeout=10` on `frieday-phase8-audit:latest` exited with container exit code `0`; logs showed `shutdown initiated → server closed → mongodb connection closed → shutdown complete`. Verified on 2026-10-18.
+
+### 3.9 Docker container runtime evidence (verified 2026-10-18)
+
+| Gate | Command | Result | Exit code |
+|------|---------|--------|-----------|
+| Image build | `docker build -t frieday-phase8-audit .` | Built `frieday-phase8-audit:latest` | 0 |
+| Container startup | `docker run -d -p 15002:5000 ... frieday-phase8-audit:latest` (dev mode, test secrets) | `Up (healthy)`, port `15002->5000/tcp` | 0 |
+| Health endpoint | `GET http://127.0.0.1:15002/api/health` | `HTTP 200`, body `{"ok":true,"version":"0.0.0","db":"down","github":"unconfigured","uptime":11}` | 0 |
+| Graceful shutdown | `docker stop --timeout=10 frieday-phase8-audit-test` | Exit code `0`, logs `shutdown initiated → server closed → mongodb connection closed → shutdown complete` | 0 |
+
+(`db: down` and `github: unconfigured` are expected in this dependency-free smoke test; they do not establish database or GitHub integration health.)
 
 ### 3.5 Client tests
 
@@ -101,21 +115,21 @@ Two defects caused `node --test tests/auth.test.js` to hang after printing all r
 | ESLint (root `eslint .`)                         | PASS                      | 0         | The pre-existing `no-unused-vars` error on `repos.fetcher.test.js:68` was fixed (timer now `clearTimeout`ed on success).                                                                                                                                                                                                                                             |
 | Prettier (`prettier --check .`)                  | 4 unformatted files       | 1         | `docs/phase8-acceptance-report.md` (updated in this run — will be formatted on save), plus 3 **pre-existing** files not touched this run: `server/src/services/intelligence/composer-persist.js`, `server/tests/composer.insights.test.js`, `server/tests/dbTestHygiene.test.js`. These are code-style warnings, not product defects, and pre-date this closure run. |
 | Client production build (`vite build -w client`) | PASS                      | 0         | 2198 modules; chunk-size warning only (>500 kB chunk).                                                                                                                                                                                                                                                                                                               |
+| Docker image build + container health + shutdown | `docker build` / `docker run` / `docker stop` | 0         | Image `frieday-phase8-audit:latest` built; container healthy; health HTTP 200; shutdown exit 0 with clean cleanup sequence. |
 | `npm audit --omit=dev`                           | 2 moderate (react-router) | 1         | CVE-2025-68470 + GHSA-337j-9hxr-rhxg. **SEC-1 — approved time-bounded exception, NOT fixed** (fix is a breaking v6→v7 migration). Reassessment 2026-11-16. See §11.                                                                                                                                                                                                  |
 
 ### 3.7 What was NOT run / NOT verified
 
-- Docker build + container smoke/shutdown: **NOT VERIFIED** — `docker` CLI is not installed on this host (command not found). Static Dockerfile inspection is not a substitute for an image build.
 - Production-environment verification (HTTPS deploy, live health checks): **ENVIRONMENT PENDING** — no deployment exists.
-- `git grep` secret scan: not run (no git repository in this workspace).
 
 ---
 
 ## 4. Corrections applied to malformed / duplicated prior edits
 
-- `server/src/index.js` — graceful shutdown rewritten (see §3.4). Removed the fired-and-forgotten `server.close()` / `mongoose.connection.close()` + premature `process.exit(0)`.
+- `server/src/index.js` — graceful shutdown rewritten (see §3.4). Removed the fired-and-forgotten `server.close()` / `mongoose.connection.close()` + premature `process.exit(0)`. Mongoose v8 `close()` (Promise-based, no callback) used correctly; verified at container level via `docker stop` (exit code 0).
 - `server/tests/auth.test.js` — added `process.env.GITHUB_API_BASE = fakeUrl`; added `after()` `mongoose.disconnect()` to the `User.upsertOne` describe.
 - `server/tests/repos.fetcher.test.js` — `fakeClose()` timeout handle now `clearTimeout`ed on success (deterministic cleanup; fixes lint `no-unused-vars`).
+- `Dockerfile` — removed `ENV NODE_ENV=production` from builder stage so `vite` (a client devDependency) is installed before `npm run build -w client`; `npm prune --omit=dev` runs after build; runtime stage retains `NODE_ENV=production`.
 - No commits or pushes were made. Phase 9 remains LOCKED.
 
 ---
@@ -129,7 +143,7 @@ Two defects caused `node --test tests/auth.test.js` to hang after printing all r
 - Headers/CORS/cookies: PASS.
 - Logging (reqId/jobId, no secrets/tokens): PASS.
 - `npm audit --omit=dev`: 0 High/Critical, 2 moderate react-router — **SEC-1 approved exception, not fixed** (reassessment 2026-11-16).
-- Secret scan: not run (no git repository).
+- Git-aware secret scan: **CLEAN** — scanned all 258 tracked files + full git history (`git log --all --name-only`). No real `.env`, credentials, private keys, or access tokens committed. `.env.example` contains placeholders only. All pattern matches were documentation text, a leak-detection regex in `scripts/smoke.js`, and test fixtures with obviously fake values used to assert secrets are scrubbed from responses.
 
 ---
 
@@ -152,7 +166,7 @@ Running the DB-gated suites against the live Atlas `MONGO_URI` previously destro
 
 | Phase        | Status     | Details                                                                                                                                                         |
 | ------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Phase 8 T8.1 | `[~]`      | Remaining: production-environment verification (ENVIRONMENT PENDING). All automatable acceptance gates PASS with evidence (937/0/1 server, exit 0).             |
+| Phase 8 T8.1 | `[~]`      | Remaining: production-environment verification (ENVIRONMENT PENDING). All automatable acceptance gates PASS with evidence (937/0/1 server, exit 0); Docker build/container/shutdown verified. |
 | Phase 8 T8.2 | `[~]`      | Remaining: SEC-1 reassessment 2026-11-16 + production-environment verification. All automatable security gates PASS. SEC-1 is an approved exception, not a fix. |
 | Phase 9      | **LOCKED** | Phase 8 DoD not fully met (production-environment verification pending).                                                                                        |
 

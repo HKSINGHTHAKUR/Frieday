@@ -13,7 +13,8 @@
 
 # ---------- Stage 1: builder ----------
 FROM node:20-bookworm-slim AS builder
-ENV NODE_ENV=production
+# devDependencies (incl. vite) must be installed so the client can build;
+# they are pruned after the build via `npm prune --omit=dev` below.
 WORKDIR /app
 
 # Lockfile-first so dependency layers are cached independently of source.
