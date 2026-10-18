@@ -1,0 +1,27 @@
+{
+  "name": "frieday",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Frieday — Developer Intelligence Platform (monorepo)",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "test": "npm run test -w server && npm run test -w client",
+    "build": "npm run build -w client"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "concurrently": "^9.0.1",
+    "eslint": "^9.13.0",
+    "eslint-plugin-react": "^7.37.5",
+    "prettier": "^3.3.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

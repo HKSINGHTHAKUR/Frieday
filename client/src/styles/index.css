@@ -1,0 +1,107 @@
+/**
+ * Frieday design tokens (authoritative: design_system.md §4).
+ * All text/background pairs meet WCAG AA (≥4.5:1). Dark-theme values are
+ * reserved for V1 — do not design dark-specific components in MVP.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Surfaces (light) */
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f1f3f5;
+  --border: #e5e8ec;
+  --border-strong: #d4d9df;
+
+  /* Text */
+  --text: #16191d;
+  --text-2: #4b5560;
+  --text-3: #7a8490;
+
+  /* Brand / action */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #e8effe;
+
+  /* Semantic */
+  --success: #15803d;
+  --success-bg: #e7f5ec;
+  --warning: #b45309;
+  --warning-bg: #fef3e2;
+  --danger: #dc2626;
+  --danger-bg: #fdecec;
+  --info: #4f46e5;
+
+  /* Chart palette (colorblind-safe) */
+  --chart-1: #2563eb;
+  --chart-2: #7c3aed;
+  --chart-3: #059669;
+  --chart-4: #d97706;
+  --chart-5: #64748b;
+  --chart-6: #db2777;
+
+  /* Radius */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.1);
+  --shadow-lg: 0 12px 32px rgba(16, 24, 40, 0.16);
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family:
+    Inter,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  font-size: 14px;
+  line-height: 21px;
+  margin: 0;
+}
+
+/* Tabular numbers for metrics (design_system.md §5) */
+.metric,
+table {
+  font-feature-settings:
+    'tnum' 1,
+    'cv05' 1;
+}
+
+code,
+.mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* Visible focus ring (design_system.md §12, §28) */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Skeleton shimmer: subtle opacity pulse (respects reduced motion) */
+@keyframes fd-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.skeleton-pulse {
+  animation: fd-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-pulse {
+    animation: none;
+  }
+}

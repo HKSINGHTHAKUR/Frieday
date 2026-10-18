@@ -1,0 +1,42 @@
+# Keep secrets, workspace junk, and build/source leftovers out of the image.
+# The Docker build rebuilds the client itself, so existing dist is ignored.
+
+# Secrets / local env
+.env
+.env.*
+*.local
+
+# Dependencies (reinstalled deterministically inside the build)
+node_modules
+**/node_modules
+
+# Build output (rebuilt in Stage 1)
+client/dist
+dist
+build
+
+# Tests / dev tooling not needed at runtime
+server/tests
+**/*.test.js
+**/*.test.jsx
+coverage
+
+# VCS + editor + OS noise
+.git
+.gitignore
+.hg
+.svn
+.vscode
+.idea
+*.log
+.DS_Store
+Thumbs.db
+
+# Docs are kept in-repo, not required in the image
+docs
+md files
+README.md
+
+# npm
+npm-debug.log*
+package-lock.json.bak

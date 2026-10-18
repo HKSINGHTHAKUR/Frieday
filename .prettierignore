@@ -1,0 +1,12 @@
+dist/
+node_modules/
+package-lock.json
+.env.example
+.gitignore
+# Source-of-truth docs: never reformat (authoritative as written).
+prd.md
+architecture.md
+rules.md
+design_system.md
+agents.md
+tasks.md
