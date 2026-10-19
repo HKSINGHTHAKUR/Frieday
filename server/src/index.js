@@ -14,7 +14,7 @@ const path = require('node:path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 const { getEnv } = require('./config/env');
-const { connectDb } = require('./config/db');
+const { connectDb, markShuttingDown } = require('./config/db');
 const { createApp } = require('./app');
 const logger = require('./utils/logger');
 const { createScheduler } = require('./jobs/scheduler');
@@ -52,6 +52,7 @@ async function main() {
   });
 
   function shutdown(signal) {
+    markShuttingDown();
     if (shuttingDown) {
       logger.warn({ msg: 'shutdown already in progress, ignoring signal', signal });
       return;

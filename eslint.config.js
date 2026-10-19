@@ -24,6 +24,7 @@ module.exports = [
         fetch: 'readonly',
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
+        setImmediate: 'readonly',
         describe: 'readonly',
         it: 'readonly',
         before: 'readonly',
