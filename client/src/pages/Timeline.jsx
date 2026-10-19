@@ -148,7 +148,7 @@ export default function Timeline() {
           )}
           <div className="mt-12" role="region" aria-label="Activity table equivalent">
             <h3 className="sr-only">Activity table (chart alternative)</h3>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" tabIndex={0}>
               <table className="w-full text-sm" role="table">
                 <thead>
                   <tr className="border-b border-border-strong">
@@ -193,7 +193,7 @@ export default function Timeline() {
               body="Try a longer range or a different repository."
             />
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" tabIndex={0}>
               <table className="w-full text-sm" role="table">
                 <thead>
                   <tr className="border-b border-border-strong">

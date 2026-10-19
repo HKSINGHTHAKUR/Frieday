@@ -30,7 +30,7 @@ export default function Sidebar() {
             end={end}
             className={({ isActive }) =>
               `flex items-center gap-8 rounded-sm px-12 py-8 text-sm font-medium ${
-                isActive ? 'bg-accent-soft text-accent' : 'text-text2 hover:bg-surface2'
+                isActive ? 'bg-accent-soft text-accent-hover' : 'text-text2 hover:bg-surface2'
               }`
             }
           >

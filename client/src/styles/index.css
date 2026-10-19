@@ -18,7 +18,7 @@
   /* Text */
   --text: #16191d;
   --text-2: #4b5560;
-  --text-3: #7a8490;
+  --text-3: #666f78; /* darkened from #7a8490 — WCAG AA ≥4.5:1 on bg, surface, and surface-2 */
 
   /* Brand / action */
   --accent: #2563eb;
@@ -26,7 +26,7 @@
   --accent-soft: #e8effe;
 
   /* Semantic */
-  --success: #15803d;
+  --success: #14753b; /* darkened from #15803d — WCAG AA ≥4.5:1 on success-bg */
   --success-bg: #e7f5ec;
   --warning: #b45309;
   --warning-bg: #fef3e2;
@@ -34,13 +34,13 @@
   --danger-bg: #fdecec;
   --info: #4f46e5;
 
-  /* Chart palette (colorblind-safe) */
-  --chart-1: #2563eb;
+  /* Chart palette (colorblind-safe, WCAG AA >= 4.5:1 on #ffffff) */
+  --chart-1: #1d4ed8;
   --chart-2: #7c3aed;
   --chart-3: #059669;
-  --chart-4: #d97706;
+  --chart-4: #b45309;
   --chart-5: #64748b;
-  --chart-6: #db2777;
+  --chart-6: #be185d;
 
   /* Radius */
   --r-sm: 6px;

@@ -21,7 +21,7 @@ export default function RepoHealthTable({ repoHealth = [], formatAgo }) {
           <p className="text-sm text-text3 mt-4">Run Sync to populate repository health.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" tabIndex={0}>
           <table className="w-full text-sm" role="table">
             <thead>
               <tr className="border-b border-border-strong">

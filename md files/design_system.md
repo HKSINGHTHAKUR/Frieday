@@ -49,7 +49,7 @@ Tailwind configured with these CSS variables (`client/src/styles/index.css`). Al
 |-------|-------|-----|
 | `--text` | `#16191D` | Primary (15.8:1 on surface) |
 | `--text-2` | `#4B5560` | Secondary (7.5:1) |
-| `--text-3` | `#7A8490` | Tertiary/captions (4.6:1) |
+| `--text-3` | `#666F78` | Tertiary/captions (5.1:1 on surface, 4.8:1 on bg, 4.6:1 on surface-2) |
 
 **Brand / action:**
 
@@ -63,7 +63,7 @@ Tailwind configured with these CSS variables (`client/src/styles/index.css`). Al
 
 | Token | Value | Use |
 |-------|-------|-----|
-| `--success` | `#15803D` | Healthy, merged, positive deltas |
+| `--success` | `#14753B` | Healthy, merged, positive deltas (5.1:1 on success-bg) |
 | `--success-bg` | `#E7F5EC` | |
 | `--warning` | `#B45309` | Quiet, rate-limited, medium confidence |
 | `--warning-bg` | `#FEF3E2` | |
