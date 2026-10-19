@@ -66,6 +66,13 @@ async function dashboardHandler(req, res) {
 
     return res.json(result);
   } catch (err) {
+    req.log.error({
+      reqId: req.id,
+      code: 'INTERNAL',
+      operation: 'dashboard',
+      message: err && err.message,
+      stack: err && err.stack,
+    });
     return sendError(req, res, err);
   }
 }

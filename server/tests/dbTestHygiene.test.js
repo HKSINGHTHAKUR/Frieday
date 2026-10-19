@@ -25,7 +25,12 @@ const TESTS_DIR = __dirname;
 
 // Suites that connect via config/db (MONGO_URI — may point anywhere) must
 // never contain an unscoped collection wipe.
-const CONFIG_DB_SUITES = ['auth.test.js', 'repos.routes.test.js', 'timeline.routes.test.js', 'user-endpoints.test.js'];
+const CONFIG_DB_SUITES = [
+  'auth.test.js',
+  'repos.routes.test.js',
+  'timeline.routes.test.js',
+  'user-endpoints.test.js',
+];
 
 const UNSCOPED_LINE = /\.deleteMany\(\s*\{\s*\}\s*\)/;
 

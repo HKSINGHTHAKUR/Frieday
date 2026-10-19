@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useDashboard } from '../hooks/useDashboard.js';
 import Card from '../components/ui/Card.jsx';
 import Skeleton from '../components/ui/Skeleton.jsx';
@@ -12,14 +14,34 @@ import RepoHealthTable from '../components/domain/RepoHealthTable.jsx';
 import InsightsCard from '../components/domain/InsightsCard.jsx';
 import { useAuth } from '../hooks/useAuth.js';
 import { useSync } from '../store/SyncStore.jsx';
+import { useToast } from '../store/ToastStore.jsx';
 import { formatCount, formatAgo } from '../lib/format.js';
 
 export default function Dashboard() {
   const { range, setRange, data: dashboardData, loading, error } = useDashboard();
   const sync = useSync();
   const { user: authUser } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const toast = useToast();
+  const connectedHandled = useRef(false);
 
   const { status: syncStatus, phase: syncPhase, progress: syncProgress, loading: syncLoading } = sync;
+
+  // One-time processing of the OAuth callback marker. The server already
+  // started the initial sync in the callback, so the client only clears the
+  // query param (via replace, so refreshing cannot re-process it) and emits
+  // a single piece of feedback. Guarded by a ref so it runs exactly once and
+  // never triggers duplicate sync actions or redirect loops.
+  useEffect(() => {
+    if (connectedHandled.current) return;
+    if (searchParams.get('connected') === '1') {
+      connectedHandled.current = true;
+      const next = new URLSearchParams(searchParams);
+      next.delete('connected');
+      setSearchParams(next, { replace: true });
+      toast.push('success', 'GitHub connected.');
+    }
+  }, [searchParams, setSearchParams, toast]);
 
   if (loading) {
     return (
@@ -89,7 +111,7 @@ export default function Dashboard() {
         <div className="flex items-center gap-12 text-sm text-text3">
           <span className="w-4 h-4 rounded-full bg-warning animate-pulse" aria-hidden="true" />
           <span className="text-text2">Syncing… {syncPhase ? `(${syncPhase})` : ''}</span>
-          {syncProgress.total > 0 && (
+          {syncProgress?.total > 0 && (
             <span>
               {syncProgress.done}/{syncProgress.total}
             </span>

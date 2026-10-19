@@ -12,9 +12,12 @@
  * These tests are DB-free (pure function) and mirror the composer's call
  * shape exactly.
  */
-const { describe, it } = require('node:test');
+const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const mongoose = require('mongoose');
 const { evaluateInsightsFromPayload } = require('../src/services/intelligence/composer-compute');
+const { persistInsights } = require('../src/services/intelligence/composer-persist');
+const Insight = require('../src/models/Insight');
 
 function makeCommit(i, repoId = 'r1') {
   return {
@@ -232,8 +235,7 @@ describe('FIND-1: Project Health recompute/cache variance', () => {
     assert.equal(
       healthInsights.length,
       3,
-      'fresh recompute must return one project_health insight per repo (got ' +
-        healthInsights.length + ')'
+      'fresh recompute must return one project_health insight per repo (got ' + healthInsights.length + ')'
     );
     assert.ok(
       healthInsights.every((i) => i.metrics.repoId),
@@ -262,5 +264,135 @@ describe('FIND-1: Project Health recompute/cache variance', () => {
       1,
       'FIND-1 confirmed: all project_health upserts share the same identity'
     );
+  });
+});
+
+/**
+ * Regression test for the dashboard 500 (E11000 duplicate key on insights).
+ *
+ * Defect: persistInsights upserted per-repo project_health insights with
+ * identity { userId, range, templateId } but repoId was missing from the
+ * live unique index, so N per-repo insights collided on the same
+ * (userId, range, templateId) key and the bulkWrite threw E11000, crashing
+ * the dashboard with HTTP 500 for 30d/12m ranges.
+ *
+ * Fix: persistInsights now wipes { userId, range } before re-inserting, so
+ * per-repo project_health insights for different repos can coexist.
+ *
+ * DB-gated: skips when MongoDB is unavailable.
+ */
+describe('persistInsights — per-repo project_health duplicate key (recomputed ranges)', () => {
+  const TEST_USER_ID = new mongoose.Types.ObjectId();
+  const TEST_REPO_ID_1 = new mongoose.Types.ObjectId();
+  const TEST_REPO_ID_2 = new mongoose.Types.ObjectId();
+  let dbUp = false;
+
+  before(async () => {
+    try {
+      await mongoose.connect('mongodb://127.0.0.1:27017/frieday_test_configdb', {
+        serverSelectionTimeoutMS: 3000,
+      });
+      dbUp = true;
+    } catch {
+      dbUp = false;
+    }
+  });
+
+  after(async () => {
+    if (dbUp) {
+      await mongoose.connection.db
+        .collection('insights')
+        .deleteMany({ userId: TEST_USER_ID })
+        .catch(() => {});
+      await mongoose.disconnect().catch(() => {});
+    }
+  });
+
+  async function insertProjectHealthInsight(db, repoId) {
+    await db.collection('insights').insertOne({
+      userId: TEST_USER_ID,
+      range: '30d',
+      templateId: 'project_health',
+      repoId,
+      generatedAt: new Date('2026-10-17T00:00:00.000Z'),
+      title: 'Existing project health',
+      text: 'Existing insight text',
+      metrics: {
+        repoId,
+        repoName: 'existing/repo',
+        previousHealth: 'quiet',
+        currentHealth: 'active',
+        daysSinceActivity: 5,
+      },
+      evidence: { repoIds: [repoId] },
+      confidence: 'High',
+    });
+  }
+
+  it('persistInsights inserts multiple per-repo project_health insights without duplicate key', async (t) => {
+    if (!dbUp) {
+      t.skip('requires MongoDB (unavailable in this environment)');
+      return;
+    }
+
+    // Seed an existing project_health insight for repo 1 (simulates stale cache).
+    const db = mongoose.connection.db;
+    await insertProjectHealthInsight(db, TEST_REPO_ID_1);
+
+    try {
+      // New insights for TWO different repos — previously this collided on
+      // (userId, range, templateId) because repoId was missing from the live
+      // index. With deleteMany + upsert, both insert cleanly.
+      await persistInsights(
+        TEST_USER_ID.toString(),
+        '30d',
+        [
+          {
+            templateId: 'project_health',
+            title: 'Repo 1 revived',
+            text: 'repo1 moved from quiet to active.',
+            metrics: {
+              repoId: TEST_REPO_ID_1.toString(),
+              repoName: 'repo1',
+              previousHealth: 'quiet',
+              currentHealth: 'active',
+              daysSinceActivity: 2,
+            },
+            evidence: { repoIds: [TEST_REPO_ID_1.toString()] },
+            confidence: 'High',
+          },
+          {
+            templateId: 'project_health',
+            title: 'Repo 2 went quiet',
+            text: 'repo2 moved from active to quiet.',
+            metrics: {
+              repoId: TEST_REPO_ID_2.toString(),
+              repoName: 'repo2',
+              previousHealth: 'active',
+              currentHealth: 'quiet',
+              daysSinceActivity: 10,
+            },
+            evidence: { repoIds: [TEST_REPO_ID_2.toString()] },
+            confidence: 'High',
+          },
+        ],
+        new Date()
+      );
+
+      const stored = await Insight.find({
+        userId: TEST_USER_ID,
+        range: '30d',
+        templateId: 'project_health',
+      }).lean();
+      assert.equal(stored.length, 2, 'both per-repo project_health insights must be stored');
+      const storedRepoIds = new Set(stored.map((i) => i.repoId && i.repoId.toString()));
+      assert.ok(storedRepoIds.has(TEST_REPO_ID_1.toString()), 'repo 1 insight must be stored');
+      assert.ok(storedRepoIds.has(TEST_REPO_ID_2.toString()), 'repo 2 insight must be stored');
+    } finally {
+      await mongoose.connection.db
+        .collection('insights')
+        .deleteMany({ userId: TEST_USER_ID })
+        .catch(() => {});
+    }
   });
 });

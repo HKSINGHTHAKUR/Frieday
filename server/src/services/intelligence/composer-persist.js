@@ -148,10 +148,14 @@ async function persistActivityBuckets(userId, range, timeline, rawData, granular
 async function persistInsights(userId, range, insights, generatedAt) {
   if (!insights.length) return;
 
+  // Wipe-and-rebuild: remove all existing insights for this user/range so
+  // per-repo insights (e.g. project_health) can be re-inserted without
+  // unique-index collisions on (userId, range, templateId). Matches the
+  // wipe-and-rebuild pattern used by persistActivityBuckets.
+  await Insight.deleteMany({ userId, range });
+
   const operations = insights.map((insight) => {
-    const repoId = insight.metrics?.repoId
-      ? new mongoose.Types.ObjectId(insight.metrics.repoId)
-      : null;
+    const repoId = insight.metrics?.repoId ? new mongoose.Types.ObjectId(insight.metrics.repoId) : null;
     return {
       updateOne: {
         filter: {

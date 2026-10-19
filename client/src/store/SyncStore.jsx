@@ -29,6 +29,7 @@ const INITIAL = {
   startedAt: null,
   finishedAt: null,
   loading: true,
+  progress: null,
 };
 
 export function SyncProvider({ children }) {

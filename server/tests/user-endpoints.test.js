@@ -76,17 +76,22 @@ describe('user endpoints (tasks.md T1.2)', () => {
 
   async function startFlow() {
     const res = await fetch(`${baseUrl}/api/auth/github`, { redirect: 'manual' });
-    const state = cookieValue(res, 'fd_oauth_state');
-    assert.ok(state, 'state cookie must be set on authorize redirect');
-    return state;
+    const stateCookie = cookieValue(res, 'fd_oauth_state');
+    assert.ok(stateCookie, 'state cookie must be set on authorize redirect');
+    // Cookie value is signed: state:expiresAt:signature (URL-encoded by Express).
+    // decodeURIComponent to get the raw state:expiresAt:signature, then split
+    // on ':' to extract just the state for the query parameter.
+    const decoded = decodeURIComponent(stateCookie);
+    const state = decoded.split(':')[0];
+    return { state, cookieVal: decoded };
   }
 
   /** Complete a login for `fake.user`; returns the issued cookie values. */
   async function login() {
-    const state = await startFlow();
+    const { state, cookieVal } = await startFlow();
     const res = await fetch(
       `${baseUrl}/api/auth/github/callback?code=test-auth-code&state=${encodeURIComponent(state)}`,
-      { redirect: 'manual', headers: { Cookie: `fd_oauth_state=${state}` } }
+      { redirect: 'manual', headers: { Cookie: `fd_oauth_state=${cookieVal}` } }
     );
     assert.equal(res.status, 302, `login must succeed (got ${res.status})`);
     assert.equal(res.headers.get('location'), '/dashboard?connected=1');

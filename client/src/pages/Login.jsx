@@ -59,14 +59,18 @@ export default function Login() {
           access. Your token is stored encrypted on the server and never sent to the browser.
         </p>
         <div className="mt-16">
-          {/* Plain anchor (not a router Link): OAuth must start with a real
-              document navigation so the browser follows the 302 to GitHub. */}
-          <a
-            href="/api/auth/github"
-            className="inline-flex h-44 items-center justify-center rounded-sm bg-accent px-24 text-base font-medium text-white transition-colors hover:bg-accent-hover"
+          {/* Real document navigation (not a router Link) so the browser
+              follows the server 302 to GitHub. Uses location.replace so the
+              login page does not linger in history: after the OAuth callback
+              redirects to /dashboard, Browser Back must not return to a login
+              page that immediately bounces back to the dashboard. */}
+          <button
+            type="button"
+            onClick={() => window.location.replace('/api/auth/github')}
+            className="inline-flex h-44 items-center justify-center rounded-sm bg-accent px-24 text-base font-medium text-white transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Connect with GitHub
-          </a>
+          </button>
         </div>
       </Card>
     </main>

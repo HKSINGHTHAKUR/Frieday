@@ -26,7 +26,10 @@ export const AuthContext = createContext(null);
 const INITIAL = { status: 'loading', user: null, connected: null, lastSyncedAt: null, error: null };
 
 // Module scope: survives provider remounts within a page load.
+// Single-flight guards so React StrictMode double-invocation (or concurrent
+// route entries) cannot fire overlapping session probes or rotations.
 let inFlightRefresh = null;
+let inFlightLoadMe = null;
 
 export function AuthProvider({ children }) {
   const [shared, setShared] = useState(INITIAL);
@@ -52,28 +55,34 @@ export function AuthProvider({ children }) {
   }, [markSessionLost]);
 
   const loadMe = useCallback(async () => {
-    setShared((s) => ({ ...s, status: 'loading', error: null }));
-    try {
-      // apiClient already attempts one rotation on 401 before surfacing this.
-      const me = await apiGet('/api/auth/me');
-      setShared({
-        status: 'authenticated',
-        user: me.user,
-        connected: me.connected,
-        lastSyncedAt: me.lastSyncedAt,
-        error: null,
-      });
-    } catch (err) {
-      if (err && err.status === 401 && err.code === 'UNAUTHENTICATED') {
-        setShared({ ...INITIAL, status: 'unauthenticated' });
-      } else {
-        setShared((s) => ({
-          ...s,
-          status: 'error',
-          error: (err && err.message) || 'Could not load your session.',
-        }));
-      }
+    if (!inFlightLoadMe) {
+      inFlightLoadMe = (async () => {
+        try {
+          // apiClient already attempts one rotation on 401 before surfacing this.
+          const me = await apiGet('/api/auth/me');
+          setShared({
+            status: 'authenticated',
+            user: me.user,
+            connected: me.connected,
+            lastSyncedAt: me.lastSyncedAt,
+            error: null,
+          });
+        } catch (err) {
+          if (err && err.status === 401 && err.code === 'UNAUTHENTICATED') {
+            setShared({ ...INITIAL, status: 'unauthenticated' });
+          } else {
+            setShared((s) => ({
+              ...s,
+              status: 'error',
+              error: (err && err.message) || 'Could not load your session.',
+            }));
+          }
+        } finally {
+          inFlightLoadMe = null;
+        }
+      })();
     }
+    return inFlightLoadMe;
   }, []);
 
   useEffect(() => {

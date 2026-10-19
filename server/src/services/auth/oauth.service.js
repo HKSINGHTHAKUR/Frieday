@@ -12,15 +12,60 @@ const { getEnv } = require('../../config/env');
 const { getGithubConfig } = require('../../config/github');
 
 const STATE_TTL_MS = 10 * 60 * 1000;
-const states = new Map();
 
-// Lazy prune so the map cannot grow unbounded on abandoned authorizations.
-function pruneStates(now) {
-  for (const [state, expiresAt] of states) {
-    if (expiresAt <= now) {
-      states.delete(state);
-    }
-  }
+// Consumed states are tracked within a single process lifetime to enforce
+// one-time use of each state. Cross-restart replay is NOT prevented: after a
+// server restart this Set is empty. The 10-minute cookie expiry is the
+// cross-restart safety net — captured state+cookie pairs can no longer be
+// replayed once they expire. Concurrent login tabs overwrite the cookie with
+// the most recent state; earlier tabs' callbacks fail (query state !== cookie
+// state) rather than being silently accepted.
+const consumedStates = new Set();
+
+/**
+ * HMAC-SHA256 signature for a state payload, compared in constant time.
+ * @param {string} state the OAuth state value
+ * @param {number} expiresAt epoch ms when the state expires
+ * @param {string} secret the HMAC key (JWT_SECRET)
+ * @returns {string} hex signature
+ */
+function signPayload(state, expiresAt, secret) {
+  return crypto.createHmac('sha256', secret).update(`${state}:${expiresAt}`).digest('hex');
+}
+
+/**
+ * Constant-time comparison of a provided signature against the expected one.
+ * Buffer-length mismatch returns false (never throws).
+ * @param {string} expected the expected hex signature
+ * @param {string} actual the provided hex signature
+ * @returns {boolean}
+ */
+function constantTimeSigEqual(expected, actual) {
+  if (typeof expected !== 'string' || typeof actual !== 'string') return false;
+  const expBuf = Buffer.from(expected, 'hex');
+  const actBuf = Buffer.from(actual, 'hex');
+  if (expBuf.length !== actBuf.length) return false;
+  return crypto.timingSafeEqual(expBuf, actBuf);
+}
+
+/**
+ * Parse and validate a signed state cookie value.
+ * Format: `${state}:${expiresAt}:${signature}`
+ * @param {string} cookieValue raw cookie value
+ * @param {string} secret HMAC key
+ * @returns {{ state: string, expiresAt: number } | null } null when invalid
+ */
+function parseSignedState(cookieValue, secret) {
+  if (typeof cookieValue !== 'string') return null;
+  const parts = cookieValue.split(':');
+  if (parts.length !== 3) return null;
+  const [state, expiresAtStr, sig] = parts;
+  if (typeof state !== 'string' || state.length === 0) return null;
+  const expiresAt = Number(expiresAtStr);
+  if (!Number.isFinite(expiresAt)) return null;
+  const expectedSig = signPayload(state, expiresAt, secret);
+  if (!constantTimeSigEqual(expectedSig, sig)) return null;
+  return { state, expiresAt };
 }
 
 /**
@@ -31,11 +76,6 @@ function pruneStates(now) {
  *             upsertUser(record: object): Promise<{ githubId: number, login: string }> }}
  */
 function createOAuthService() {
-  /**
-   * Create the CSRF `state` and the URL the browser must visit.
-   * @returns {{ state: string, authorizationUrl: string, cookieOptions: object }}
-   * @throws {Error} code `INVALID_CONFIG` when the OAuth App is not configured
-   */
   function beginAuth() {
     const gh = getGithubConfig();
     if (!gh.clientId) {
@@ -44,8 +84,8 @@ function createOAuthService() {
       throw err;
     }
     const state = crypto.randomBytes(32).toString('hex');
-    pruneStates(Date.now());
-    states.set(state, Date.now() + STATE_TTL_MS);
+    const expiresAt = Date.now() + STATE_TTL_MS;
+    const cookieValue = `${state}:${expiresAt}:${signPayload(state, expiresAt, getEnv().JWT_SECRET)}`;
     const params = new URLSearchParams({
       client_id: gh.clientId,
       redirect_uri: gh.callbackUrl,
@@ -55,6 +95,7 @@ function createOAuthService() {
     return {
       state,
       authorizationUrl: `${gh.authorizeUrl}?${params.toString()}`,
+      cookieValue,
       cookieOptions: {
         httpOnly: true,
         sameSite: 'lax',
@@ -66,21 +107,30 @@ function createOAuthService() {
   }
 
   /**
-   * Verify a `state` against the server-side store (CSRF gate).
-   * Successful verification consumes the state — each state is single-use.
-   * @param {string} state
+   * Verify a `state` against a signed cookie value.
+   *
+   * Validation order: structure → state match → expiry → HMAC signature
+   * (constant-time) → single-use (consumedStates). Every failure returns
+   * false without throwing; no exception escapes this function.
+   *
+   * Successful verification consumes the state — each state is single-use
+   * within the current process lifetime.
+   *
+   * @param {string} state the state from the query string
+   * @param {string} cookieValue the signed cookie value from fd_oauth_state
    * @returns {boolean}
    */
-  function verifyState(state) {
-    if (typeof state !== 'string' || state.length === 0) {
-      return false;
-    }
-    const expiresAt = states.get(state);
-    if (expiresAt === undefined || expiresAt <= Date.now()) {
-      states.delete(state);
-      return false;
-    }
-    states.delete(state);
+  function verifyState(state, cookieValue) {
+    if (typeof state !== 'string' || state.length === 0) return false;
+    if (typeof cookieValue !== 'string' || cookieValue.length === 0) return false;
+
+    const parsed = parseSignedState(cookieValue, getEnv().JWT_SECRET);
+    if (!parsed) return false;
+    if (parsed.state !== state) return false; // query/cookie mismatch
+    if (parsed.expiresAt <= Date.now()) return false; // expired
+
+    if (consumedStates.has(state)) return false; // already consumed (replay)
+    consumedStates.add(state); // mark consumed (single-use)
     return true;
   }
 

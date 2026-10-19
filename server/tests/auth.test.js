@@ -82,8 +82,10 @@ describe('GET /api/auth/github + /callback (tasks.md T1.1)', () => {
     const res = await fetch(`${baseUrl}/api/auth/github`, { redirect: 'manual' });
     const stateCookie = cookieFull(res, 'fd_oauth_state');
     assert.ok(stateCookie, 'state cookie must be set on authorize redirect');
-    const state = stateCookie.split(';')[0].replace('fd_oauth_state=', '');
-    return { startRes: res, state };
+    const cookieValue = stateCookie.split(';')[0].replace('fd_oauth_state=', '');
+    const decodedCookieValue = decodeURIComponent(cookieValue);
+    const state = decodedCookieValue.split(':')[0];
+    return { startRes: res, state, cookieValue: decodedCookieValue };
   }
 
   before(async () => {
@@ -102,6 +104,10 @@ describe('GET /api/auth/github + /callback (tasks.md T1.1)', () => {
     // (triggered in the background by the OAuth callback) never reaches the
     // real GitHub API and keeps no external connection alive.
     process.env.GITHUB_API_BASE = fakeUrl;
+    // Point MongoDB at the isolated local test database (never the live
+    // deployment URI from .env). Required so the INC-1 guard accepts the
+    // connection and dbUp reflects real local availability.
+    process.env.MONGO_URI = 'mongodb://127.0.0.1:27017/frieday_test_configdb';
 
     const db = require('../src/config/db');
     try {
@@ -149,7 +155,7 @@ describe('GET /api/auth/github + /callback (tasks.md T1.1)', () => {
   });
 
   it('redirects to GitHub authorize with a matching httpOnly state cookie', async () => {
-    const { startRes, state } = await startFlow();
+    const { startRes, state, cookieValue } = await startFlow();
     assert.equal(startRes.status, 302);
     const location = startRes.headers.get('location');
     assert.ok(location.startsWith('https://github.com/login/oauth/authorize?'));
@@ -158,9 +164,14 @@ describe('GET /api/auth/github + /callback (tasks.md T1.1)', () => {
     assert.equal(query.get('state'), state);
     assert.equal(query.get('redirect_uri'), 'http://localhost:5000/api/auth/github/callback');
     const stateCookie = cookieFull(startRes, 'fd_oauth_state');
+    assert.ok(stateCookie, 'state cookie must be set on authorize redirect');
     assert.ok(/HttpOnly/i.test(stateCookie), 'state cookie must be httpOnly');
     assert.ok(/Path=\/api\/auth/i.test(stateCookie), 'state cookie scoped to /api/auth');
     assert.ok(!/Secure/i.test(stateCookie), 'Secure flag is production-only');
+    // Cookie value is signed: state:expiresAt:signature
+    const parts = cookieValue.split(':');
+    assert.equal(parts.length, 3, 'signed cookie must have 3 colon-separated parts');
+    assert.equal(parts[0], state, 'first part of cookie value must equal the state');
   });
 
   it('completes the flow: session cookies + redirect, token never reaches the client', async (t) => {
@@ -170,27 +181,32 @@ describe('GET /api/auth/github + /callback (tasks.md T1.1)', () => {
     }
     fake.behavior = 'ok';
     const callsBefore = fake.tokenCalls;
-    const { startRes, state } = await startFlow();
+    const { startRes, state, cookieValue } = await startFlow();
 
     const res = await fetch(
       `${baseUrl}/api/auth/github/callback?code=test-auth-code&state=${encodeURIComponent(state)}`,
       {
         redirect: 'manual',
-        headers: { Cookie: `fd_oauth_state=${state}` },
+        headers: { Cookie: `fd_oauth_state=${cookieValue}` },
       }
     );
     assert.equal(res.status, 302);
     assert.equal(res.headers.get('location'), '/dashboard?connected=1');
     assert.equal(fake.tokenCalls, callsBefore + 1);
 
-    const cookies = res.headers.getSetCookie();
     const access = cookieFull(res, 'fd_access');
     const refresh = cookieFull(res, 'fd_refresh');
     assert.ok(access, 'fd_access cookie must be set');
     assert.ok(refresh, 'fd_refresh cookie must be set');
     assert.ok(/HttpOnly/i.test(access), 'fd_access must be httpOnly');
     assert.ok(/HttpOnly/i.test(refresh), 'fd_refresh must be httpOnly');
-    assert.ok(!/fd_oauth_state=/.test(cookies.join('')), 'state cookie must not be re-issued');
+    // State cookie must be cleared (empty value), not re-issued with a new value.
+    const setCookies = res.headers.getSetCookie() || [];
+    const stateCookieReissued = setCookies.some((c) => {
+      const m = c.match(/^fd_oauth_state=([^;]*)/);
+      return m && m[1].length > 0;
+    });
+    assert.ok(!stateCookieReissued, 'state cookie must not be re-issued with a new value');
 
     const session = require('../src/services/auth/session.service');
     const accessValue = access.split(';')[0].replace('fd_access=', '');
@@ -243,10 +259,10 @@ describe('GET /api/auth/github + /callback (tasks.md T1.1)', () => {
       return;
     }
     fake.behavior = 'ok';
-    const { state } = await startFlow();
+    const { state, cookieValue } = await startFlow();
     const res = await fetch(`${baseUrl}/api/auth/github/callback?code=test-auth-code&state=${state}`, {
       redirect: 'manual',
-      headers: { Cookie: `fd_oauth_state=${state}` },
+      headers: { Cookie: `fd_oauth_state=${cookieValue}` },
     });
     assert.equal(res.status, 302);
     assert.equal(res.headers.get('location'), '/login?error=db_unavailable');
@@ -279,10 +295,10 @@ describe('GET /api/auth/github + /callback (tasks.md T1.1)', () => {
   it('rejects a callback without an authorization code', async () => {
     fake.behavior = 'ok';
     const callsBefore = fake.tokenCalls;
-    const { state } = await startFlow();
+    const { state, cookieValue } = await startFlow();
     const res = await fetch(`${baseUrl}/api/auth/github/callback?state=${state}`, {
       redirect: 'manual',
-      headers: { Cookie: `fd_oauth_state=${state}` },
+      headers: { Cookie: `fd_oauth_state=${cookieValue}` },
     });
     assert.equal(res.status, 403);
     assert.equal(fake.tokenCalls, callsBefore);
@@ -290,25 +306,25 @@ describe('GET /api/auth/github + /callback (tasks.md T1.1)', () => {
 
   it('treats each state as single-use', async () => {
     fake.behavior = 'ok';
-    const { state } = await startFlow();
+    const { state, cookieValue } = await startFlow();
     const first = await fetch(`${baseUrl}/api/auth/github/callback?code=test-auth-code&state=${state}`, {
       redirect: 'manual',
-      headers: { Cookie: `fd_oauth_state=${state}` },
+      headers: { Cookie: `fd_oauth_state=${cookieValue}` },
     });
     assert.equal(first.status, 302);
     const second = await fetch(`${baseUrl}/api/auth/github/callback?code=test-auth-code&state=${state}`, {
       redirect: 'manual',
-      headers: { Cookie: `fd_oauth_state=${state}` },
+      headers: { Cookie: `fd_oauth_state=${cookieValue}` },
     });
     assert.equal(second.status, 403);
   });
 
   it('redirects a denied authorization to the login page with error=denied', async () => {
     fake.behavior = 'denied';
-    const { state } = await startFlow();
+    const { state, cookieValue } = await startFlow();
     const res = await fetch(`${baseUrl}/api/auth/github/callback?code=test-auth-code&state=${state}`, {
       redirect: 'manual',
-      headers: { Cookie: `fd_oauth_state=${state}` },
+      headers: { Cookie: `fd_oauth_state=${cookieValue}` },
     });
     assert.equal(res.status, 302);
     assert.equal(res.headers.get('location'), '/login?error=denied');
@@ -316,14 +332,36 @@ describe('GET /api/auth/github + /callback (tasks.md T1.1)', () => {
 
   it('redirects a token-endpoint failure to the login page with error=exchange_failed', async () => {
     fake.behavior = 'socket-error';
-    const { state } = await startFlow();
+    const { state, cookieValue } = await startFlow();
     const res = await fetch(`${baseUrl}/api/auth/github/callback?code=test-auth-code&state=${state}`, {
       redirect: 'manual',
-      headers: { Cookie: `fd_oauth_state=${state}` },
+      headers: { Cookie: `fd_oauth_state=${cookieValue}` },
     });
     assert.equal(res.status, 302);
     assert.equal(res.headers.get('location'), '/login?error=exchange_failed');
     fake.behavior = 'ok';
+  });
+
+  it('concurrent login tabs: second tab overwrites the state cookie, first tab callback mismatches (documented limitation)', async () => {
+    // Tab 1 starts a flow -> cookie holds stateA
+    const { state: stateA } = await startFlow();
+    // Tab 2 starts a flow -> cookie is overwritten with stateB
+    const { state: stateB, cookieValue: cookieB } = await startFlow();
+    const callsBefore = fake.tokenCalls;
+    // Tab 1's callback sends stateA but cookie now holds stateB -> mismatch -> 403
+    const res = await fetch(`${baseUrl}/api/auth/github/callback?code=test-auth-code&state=${stateA}`, {
+      redirect: 'manual',
+      headers: { Cookie: `fd_oauth_state=${cookieB}` },
+    });
+    assert.equal(res.status, 403);
+    assert.equal(fake.tokenCalls, callsBefore, 'no token exchange on cookie/state mismatch');
+    // Tab 2's callback succeeds with its own state+cookie
+    const resB = await fetch(`${baseUrl}/api/auth/github/callback?code=test-auth-code&state=${stateB}`, {
+      redirect: 'manual',
+      headers: { Cookie: `fd_oauth_state=${cookieB}` },
+    });
+    assert.equal(resB.status, 302);
+    assert.equal(fake.tokenCalls, callsBefore + 1, 'tab 2 callback exchanges the code once');
   });
 });
 
@@ -385,5 +423,80 @@ describe('User.upsertOne', () => {
     const full = await User.findOne({ githubId: FAKE_GITHUB_ID }).select('+githubTokenEnc').lean();
     assert.ok(full.githubTokenEnc.startsWith('v1:'), 'stored token must be an encrypted payload');
     assert.equal(decryptToken(full.githubTokenEnc), 'rotated-token');
+  });
+});
+
+/**
+ * Signed OAuth state validation (regression).
+ *
+ * These tests target the SIGNED-STATE design (see design review):
+ *   beginAuth() returns cookieValue = `${state}:${expiresAt}:${signature}`
+ *   verifyState(state, cookieValue) validates HMAC signature, expiry, and single-use.
+ *
+ * They are written FIRST (test-first) against the NOT-YET-IMPLEMENTED design and
+ * therefore FAIL against the current in-memory Map implementation. This is expected.
+ * They document the gap that the OAuth state fix must close.
+ */
+describe('Signed OAuth state validation (regression, test-first)', () => {
+  const crypto = require('node:crypto');
+  const { createOAuthService } = require('../src/services/auth/oauth.service');
+
+  const STATE_TTL_MS = 10 * 60 * 1000;
+
+  // Set env required by getEnv() validation inside createOAuthService/beginAuth.
+  process.env.NODE_ENV = 'test';
+  process.env.JWT_SECRET = 'test-jwt-secret-16+';
+  process.env.TOKEN_ENC_KEY = 'ab'.repeat(32);
+
+  const oauth = createOAuthService();
+
+  function makeSignedCookie(state, expiresAt, secret = process.env.JWT_SECRET) {
+    const payload = `${state}:${expiresAt}`;
+    const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    return `${state}:${expiresAt}:${sig}`;
+  }
+
+  it('beginAuth() returns a signed cookieValue (state:expiresAt:signature)', () => {
+    const result = oauth.beginAuth();
+    assert.ok(result.state, 'state must be generated');
+    assert.ok(result.authorizationUrl, 'authorizationUrl must be generated');
+    assert.ok(result.cookieValue, 'cookieValue must be present (signed cookie format)');
+    const parts = result.cookieValue.split(':');
+    assert.equal(parts.length, 3, 'cookieValue must have 3 colon-separated parts');
+    assert.equal(parts[0], result.state, 'first part must equal the state');
+    assert.notEqual(parts[2], '', 'third part must be a non-empty signature');
+  });
+
+  it('verifies a valid fresh signed state', () => {
+    const { state, cookieValue } = oauth.beginAuth();
+    assert.ok(oauth.verifyState(state, cookieValue), 'valid signed state must verify');
+  });
+
+  it('rejects a mismatched state (query state !== cookie state)', () => {
+    const { state: stateA, cookieValue: cookieA } = oauth.beginAuth();
+    const { state: stateB } = oauth.beginAuth();
+    assert.ok(!oauth.verifyState(stateB, cookieA), 'query stateB with cookie stateA must fail');
+    assert.ok(
+      !oauth.verifyState(stateA, makeSignedCookie(stateB, Date.now() + STATE_TTL_MS)),
+      'cookie stateB with query stateA must fail'
+    );
+  });
+
+  it('rejects an expired signed state', () => {
+    const expiredCookie = makeSignedCookie('some-state', Date.now() - STATE_TTL_MS - 1000);
+    assert.ok(!oauth.verifyState('some-state', expiredCookie), 'expired state must not verify');
+  });
+
+  it('rejects a tampered signature', () => {
+    const { state, cookieValue } = oauth.beginAuth();
+    const parts = cookieValue.split(':');
+    const tampered = `${parts[0]}:${parts[1]}:tampered-signature-${Date.now()}`;
+    assert.ok(!oauth.verifyState(state, tampered), 'tampered signature must not verify');
+  });
+
+  it('consumes a state after successful verification (single-use)', () => {
+    const { state, cookieValue } = oauth.beginAuth();
+    assert.ok(oauth.verifyState(state, cookieValue), 'first verification must succeed');
+    assert.ok(!oauth.verifyState(state, cookieValue), 'second verification (replay) must fail');
   });
 });

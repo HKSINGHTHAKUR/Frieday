@@ -1,6 +1,15 @@
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { memo } from 'react';
 
+const COLORS = [
+  'var(--chart-1)',
+  'var(--chart-2)',
+  'var(--chart-3)',
+  'var(--chart-4)',
+  'var(--chart-5)',
+  'var(--chart-6)',
+];
+
 function CustomTooltip({ active, payload }) {
   if (!active || !payload || !payload.length) return null;
 
@@ -38,6 +47,44 @@ function CustomTooltip({ active, payload }) {
   );
 }
 
+/**
+ * CustomLegend — renders language legend below the donut so long language
+ * names never overflow or collide with chart slices (design_system.md §17:
+ * "legend with bytes + % + commit share").
+ */
+function CustomLegend({ payload }) {
+  const total = payload.reduce((sum, { value }) => sum + value, 0);
+  return (
+    <div className="flex flex-wrap gap-16 mt-8">
+      {payload.map((entry, index) => {
+        const color = COLORS[index % COLORS.length];
+        const { name, value, payload: entryPayload } = entry;
+        const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
+        const commitShare =
+          entryPayload?.commitShare !== undefined ? `${entryPayload.commitShare.toFixed(1)}%` : '—';
+        const formatBytes = (bytes) => {
+          if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+          if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+          return `${bytes} B`;
+        };
+        return (
+          <div key={name} className="flex items-center gap-8 min-w-[150px]">
+            <span className="w-12 h-2 rounded" style={{ backgroundColor: color }} />
+            <div className="flex flex-col">
+              <span className="text-sm text-text truncate" title={name}>
+                {name}
+              </span>
+              <span className="text-xs text-text3 mono">
+                {formatBytes(entryPayload?.bytes || value)} · {percentage}% · commit share {commitShare}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 const LanguageDonut = memo(function LanguageDonut({ data }) {
   // data: { weightedBytes: { TypeScript: 1000, JavaScript: 500 }, commitShare: { ... } }
   // We use weightedBytes for the donut visualization
@@ -70,41 +117,27 @@ const LanguageDonut = memo(function LanguageDonut({ data }) {
 
   return (
     <div className="h-[280px] w-full" role="img" aria-label="Language breakdown donut chart">
-      <ResponsiveContainer width="100%" height={280}>
+      <ResponsiveContainer width="100%" height={220}>
         <PieChart>
           <Pie
             data={dataForChart}
             cx="50%"
             cy="50%"
             innerRadius={60}
-            outerRadius={80}
+            outerRadius={70}
             paddingAngle={2}
             dataKey="value"
             nameKey="name"
-            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
             labelLine={false}
           >
-            {Object.entries(data.weightedBytes)
-              .slice(0, 5)
-              .map((_, index) => (
-                <Cell
-                  key={index}
-                  fill={
-                    [
-                      'var(--chart-1)',
-                      'var(--chart-2)',
-                      'var(--chart-3)',
-                      'var(--chart-4)',
-                      'var(--chart-5)',
-                      'var(--chart-6)',
-                    ][index % 6]
-                  }
-                />
-              ))}
+            {dataForChart.map((_, index) => (
+              <Cell key={index} fill={COLORS[index % COLORS.length]} />
+            ))}
           </Pie>
           <Tooltip content={<CustomTooltip />} />
         </PieChart>
       </ResponsiveContainer>
+      <CustomLegend payload={dataForChart} />
     </div>
   );
 });

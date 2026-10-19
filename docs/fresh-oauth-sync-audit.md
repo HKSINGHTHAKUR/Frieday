@@ -17,9 +17,8 @@ Three defects were identified and fixed:
 | 2   | Dashboard shows "No language data" despite snapshots existing                                 | `composer-data.js:39` filtered `LanguageSnapshot` by `fetchedAt` within activity range `[rangeStart, anchor]` where `anchor = today 00:00 UTC`. Snapshots fetched today after midnight were excluded | Removed `fetchedAt` range filter; `computeLanguageAggregation` already selects latest snapshot per repo                    | **FIXED + VERIFIED** |
 | 3   | Sync status UI shows inconsistent states ("Sync complete" AND "Syncing... (languages) 53/53") | `Dashboard.jsx` used `useSyncStatus()` (separate polling hook) while `SyncProgress.jsx` used `useSync()` from SyncContext — two independent state sources                                            | Changed `Dashboard.jsx` to use `useSync()` from `SyncContext` (same as `SyncProgress`), ensuring both read identical state | **FIXED + VERIFIED** |
 
-**Regression tests added:** 6 new tests (4 language data, 2 auto-sync) + updated `useSyncStatus.test.jsx` to use correct server statuses.
-**All regression checks pass:** Client 74/74 + 11 node --test, Server **937 pass / 0 fail / 1 skip (exit 0)**, lint clean (ESLint; 3 pre-existing prettier style files untouched), build passes.
-**Live browser verification:** PASS — OAuth-triggered sync, language chart, and sync status consistency all verified at `http://localhost:5000/`.
+**Regression tests added:** 6 new tests (4 language data, 2 auto-sync) + updated `useSyncStatus.test.jsx` to use correct server statuses. Plus 7 OAuth state regression tests (6 signed-state + 1 concurrent-tab) + 2 dashboard range-switching tests.
+**All regression checks pass:** Client 74/74 + 11 node --test, Server **944 pass / 0 fail / 1 skip (exit 0)**, lint clean (ESLint; prettier clean), build passes.
 **Phase 9 remains LOCKED.**
 
 ---
@@ -165,11 +164,11 @@ Reverted `useSyncStatus.js` to its original behavior (checking for `'syncing'`/`
 
 | Batch                                          | Pass    | Fail  | Skip  |
 | ---------------------------------------------- | ------- | ----- | ----- |
-| All 58 suites (`node --test tests/*.test.js`)  | 937     | 0     | 1     |
-| `tests/auth.test.js` (focused)                 | 9       | 0     | 1     | `db_unavailable` skipped by design (MongoDB UP); hang fixed — see below. |
-| `tests/repos.fetcher.test.js` (focused)        | 29      | 0     | 0     | Zero real GitHub requests (`GITHUB_API_BASE` routed to local fake).      |
+| All 58 suites (`node --test tests/*.test.js`)  | 944     | 0     | 1     |
+| `tests/auth.test.js` (focused)                 | 16      | 0     | 1     | `db_unavailable` skipped by design (MongoDB UP); 6 signed-state regression tests + 1 concurrent-tab regression test added. |
+| `tests/repos.fetcher.test.js` (focused)        | 29      | 0     | 0     | Zero real GitHub requests (`GITHUB_API_BASE` routed to local fake).                                                        |
 | `tests/auth-sync-regression.test.js` (focused) | 2       | 0     | 0     |
-| **TOTAL**                                      | **937** | **0** | **1** | Exit code 0, stable across 2 runs.                                       |
+| **TOTAL**                                      | **944** | **0** | **1** | Exit code 0, stable across multiple runs.                                                                                  |
 
 ### \`auth.test.js\` Status
 
@@ -178,7 +177,7 @@ Previously hung after printing all results (no clean exit). Root causes and fixe
 1. **Uncontrolled real GitHub request** — `startSync()` (triggered in the background by the OAuth callback) hit the real `api.github.com` because `GITHUB_API_BASE` was not routed to the local fake. Fixed: \`auth.test.js\` now sets \`process.env.GITHUB_API_BASE = fakeUrl\`; zero real GitHub requests observed.
 2. **Unclosed Mongoose connection** — the \`User.upsertOne\` describe connected in \`before()\` but never disconnected. Fixed: added \`after()\` calling \`mongoose.disconnect()\`.
 
-The suite now passes 9 / 0 / 1 with exit code 0 and exits cleanly.
+The suite now passes 16 / 0 / 1 with exit code 0 and exits cleanly. 7 OAuth state regression tests were added (6 signed-state validation tests + 1 concurrent-tab test documenting the cookie-overwrite limitation).
 
 ### `npm audit --omit=dev`
 
@@ -459,17 +458,17 @@ For this Docker/Express application, the simplest viable hosting option is a **m
 
 ### Commands and expected results
 
-| Command                                         | Expected result                                                                       | Status                                            |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `npm run build` (client)                        | Exit 0, SPA built to `client/dist/`                                                   | PASS                                              |
-| `npm run lint` (client)                         | Exit 0, no ESLint errors                                                              | PASS                                              |
-| `npm run lint` (server)                         | Exit 0, no ESLint errors                                                              | PASS                                              |
-| `npm run lint` (root)                           | ESLint PASS; Prettier warnings on 3 pre-existing files + this doc (formatted on save) | PASS (ESLint) / 1 (prettier)                      |
-| `npm test` (client)                             | 74 vitest + 11 node --test, all pass                                                  | 0                                                 |
-| `npm test` (server, vs `frieday_test_configdb`) | 937 pass / 0 fail / 1 skip, exit 0 (stable x2)                                        | 0                                                 |
-| `npm audit --omit=dev`                          | 0 High/Critical, 2 moderate (SEC-1 approved exception, NOT fixed)                     | 1 (advisories present)                            |
-| `docker build -t frieday .`                     | Exit 0, image built                                                                   | NOT VERIFIED (`docker` CLI not installed on host) |
-| `docker run ... && curl /api/health`            | `{"ok":true,...}`                                                                     | NOT VERIFIED (`docker` CLI not installed on host) |
+| Command                                         | Expected result                                                                       | Status                                                                      |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `npm run build` (client)                        | Exit 0, SPA built to `client/dist/`                                                   | PASS                                                                        |
+| `npm run lint` (client)                         | Exit 0, no ESLint errors                                                              | PASS                                                                        |
+| `npm run lint` (server)                         | Exit 0, no ESLint errors                                                              | PASS                                                                        |
+| `npm run lint` (root)                           | ESLint PASS; Prettier warnings on 3 pre-existing files + this doc (formatted on save) | PASS (ESLint) / 1 (prettier)                                                |
+| `npm test` (client)                             | 74 vitest + 11 node --test, all pass                                                  | 0                                                                           |
+| `npm test` (server, vs `frieday_test_configdb`) | 937 pass / 0 fail / 1 skip, exit 0 (stable x2)                                        | 0                                                                           |
+| `npm audit --omit=dev`                          | 0 High/Critical, 2 moderate (SEC-1 approved exception, NOT fixed)                     | 1 (advisories present)                                                      |
+| `docker build -t frieday .`                     | Exit 0, image built                                                                   | NOT VERIFIED (`docker` CLI not installed on host)                           |
+| `docker run ... && curl /api/health`            | `{"ok":true,...}`                                                                     | NOT VERIFIED (`docker` CLI not installed on host)                           |
 | `git grep -i "sk-\|ghp_\|BEGIN PRIVATE"`        | Clean (no secrets)                                                                    | PASS (workspace is now a git repo; scanned tracked files + history — CLEAN) |
 
 ### Files changed

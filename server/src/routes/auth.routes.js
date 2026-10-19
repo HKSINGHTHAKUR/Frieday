@@ -63,7 +63,7 @@ router.get('/github', (req, res) => {
       error: { code: 'INVALID_CONFIG', message: 'GitHub connection is not configured.', retryable: false },
     });
   }
-  res.cookie('fd_oauth_state', started.state, started.cookieOptions);
+  res.cookie('fd_oauth_state', started.cookieValue, started.cookieOptions);
   req.log.info({ reqId: req.id, msg: 'oauth authorize redirect' });
   res.redirect(started.authorizationUrl);
 });
@@ -80,14 +80,17 @@ router.get('/github/callback', async (req, res) => {
   const state = typeof req.query.state === 'string' ? req.query.state : '';
   // CSRF gate (rules.md §7, architecture.md §7): the state must be present in
   // BOTH the query string and the httpOnly cookie (which an attacker cannot
-  // read), and must be fresh + unconsumed.
-  const cookieState = typeof req.cookies.fd_oauth_state === 'string' ? req.cookies.fd_oauth_state : '';
-  if (state.length === 0 || state !== cookieState || !oauth.verifyState(state)) {
+  // read), must match, and must be a valid, unexpired, unconsumed signed token.
+  const cookieValue = typeof req.cookies.fd_oauth_state === 'string' ? req.cookies.fd_oauth_state : '';
+  if (state.length === 0 || state !== cookieValue.split(':')[0] || !oauth.verifyState(state, cookieValue)) {
     req.log.warn({ reqId: req.id, code: 'FORBIDDEN', message: 'oauth state verification failed' });
     return res.status(403).json({
       error: { code: 'FORBIDDEN', message: 'Invalid or expired OAuth state. Try again.', retryable: false },
     });
   }
+  // State consumed — clear the httpOnly state cookie. It is single-use and
+  // must not linger after the callback.
+  res.clearCookie('fd_oauth_state', { httpOnly: true, sameSite: 'lax', path: '/api/auth' });
   const code = typeof req.query.code === 'string' ? req.query.code : '';
   if (code.length === 0) {
     req.log.warn({ reqId: req.id, code: 'FORBIDDEN', message: 'oauth callback without code' });

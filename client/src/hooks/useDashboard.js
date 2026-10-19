@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiGet } from '../lib/apiClient.js';
 
@@ -10,12 +10,16 @@ const DEFAULT_RANGE = '30d';
  * - Syncs `range` with URL search params
  * - Uses apiClient (credentials: include, auto-refresh on 401)
  * - Returns loading/error/data + range setter
+ * - In-flight request dedup: only the latest range's response updates state,
+ *   so rapid range changes (30d → 90d → 12m) never display stale data from an
+ *   earlier, slower request (T5.2 range-switching stability fix).
  */
 export function useDashboard(_initialRange = DEFAULT_RANGE) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const latestRequest = useRef(0);
 
   // Initialize range from URL or default
   const range = useMemo(() => {
@@ -32,15 +36,23 @@ export function useDashboard(_initialRange = DEFAULT_RANGE) {
   );
 
   const fetchDashboard = useCallback(async () => {
+    latestRequest.current += 1;
+    const requestId = latestRequest.current;
+
     setLoading(true);
     setError(null);
     try {
       const data = await apiGet(`/api/dashboard?range=${range}`);
+      // Discard stale responses from superseded range changes.
+      if (requestId !== latestRequest.current) return;
       setData(data);
     } catch (err) {
+      if (requestId !== latestRequest.current) return;
       setError(err);
     } finally {
-      setLoading(false);
+      if (requestId === latestRequest.current) {
+        setLoading(false);
+      }
     }
   }, [range]);
 

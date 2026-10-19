@@ -16,9 +16,11 @@ const SORTS = [
   { value: 'recent', label: 'Recent' },
 ];
 
-/** Start the OAuth flow (server redirects to GitHub and back). */
+/** Start the OAuth flow (server redirects to GitHub and back). Uses
+ * location.replace so the login page does not linger in history after the
+ * callback redirects to /dashboard (see Login.jsx). */
 function connectGitHub() {
-  window.location.assign('/api/auth/github');
+  window.location.replace('/api/auth/github');
 }
 
 /**
