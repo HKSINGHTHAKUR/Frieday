@@ -34,7 +34,11 @@ async function main() {
     env = getEnv();
   } catch (err) {
     const code = err && typeof err.code === 'string' && err.code.length > 0 ? err.code : 'INVALID_CONFIG';
-    logger.error({ msg: 'invalid configuration', code, operation: 'boot-config' });
+    // err.message contains only the variable name and validation rule
+    // (e.g. "Missing env: JWT_SECRET" or "Invalid env: TOKEN_ENC_KEY — ..."),
+    // never secret values — safe to log for deployment diagnostics.
+    const message = err && typeof err.message === 'string' ? err.message : undefined;
+    logger.error({ msg: 'invalid configuration', code, operation: 'boot-config', message });
     process.exitCode = 1;
     return;
   }
