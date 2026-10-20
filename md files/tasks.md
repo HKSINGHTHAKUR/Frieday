@@ -252,24 +252,33 @@
   - Expected output: operator can diagnose and recover from each incident using documented safe steps without requiring owner authorization for most P1/P2 issues.
   - Acceptance: all 8 incident scenarios documented with: symptom, safe diagnostic steps, likely cause, recovery action, verification; owner-required actions explicitly marked.
   - **Evidence (2026-10-20):** `docs/RUNBOOK.md` — 14 sections, covers all 8 required incident scenarios plus backup/restore, escalation matrix, known gaps. `node scripts/smoke.js https://frieday.onrender.com` 6/6 PASS confirms production is in the state documented in the runbook.
-  - **Backup/restore drill (2026-10-20):** mongodump backup found at
+  - **Backup/restore drill — prior local run (2026-10-20, kept for history):**
+  mongodump backup of local database `frieday` at
   `C:\Users\harsh\Downloads\mongodb-database-tools-windows-x86_64-100.19.1\mongodb-database-tools-windows-x86_64-100.19.1\bin\dump\frieday\`
-  (database `frieday`, NOT `frieday_prod`). Restored to disposable
-  `frieday_restore_check` using `mongorestore --nsFrom="frieday.*" --nsTo="frieday_restore_check.*"`.
-  All 11 collections restored with matching document counts and all indexes
-  recreated from metadata (users: 2, repositories: 13, commits: 334,
-  insights: 22, languagesnapshots: 13, syncstates: 6, syncjobs: 4,
-  activitybuckets: 789; issues/pullrequests/webhookdeliveries: 0 empty).
-  Temporary database dropped after verification. Safety-guard tests in
-  `server/tests/backup-restore.safety.test.js` (18 pass / 0 fail). Integration
-  test in `server/tests/backup-restore.integration.test.js` (skips when
-  MongoDB unavailable). **Atlas M0 console snapshot restore remains NOT
-  VERIFIED — OWNER ACTION REQUIRED** (needs owner Atlas credentials; see
-  `docs/RUNBOOK.md §12`). The local mongodump/mongorestore drill proves the
-  tooling works but does **not** prove Atlas connectivity, permissions, or
-  snapshot restore against the `frieday_prod` cluster. Discrepancy: the
-  backed-up database is `frieday`, while production is `frieday_prod` — the
-  backup does **not** contain `frieday_prod` data.
+  restored to disposable `frieday_restore_check` (all 11 collections,
+  indexes, counts verified; temp DB dropped). This proved the tooling but
+  did NOT contain production data.
+  - **Production recovery drill (`frieday_prod`) — VERIFIED COMPLETE (2026-10-20):**
+  `mongodump 100.19.1` run against Atlas (`frieday.klryq5o.mongodb.net`,
+  database `frieday_prod`) with the URI read from local `.env` and never
+  logged. Dump written to `C:\Temp\frieday_prod_backup_20261020103600\`
+  (11 BSON + 11 metadata.json + prelude.json; mongodump exit 0). Restored
+  to isolated local database `frieday_prod_restored_20261020103600` via
+  `mongorestore --nsFrom="frieday_prod.*" --nsTo="frieday_prod_restored_20261020103600.*"`
+  (no `--drop`; 1316 docs restored, 0 failures). Verification: all 11
+  collection names match; per-collection document counts match for every
+  collection (activitybuckets=906, commits=341, insights=23, repositories=14,
+  languagesnapshots=14, syncjobs=12, syncstates=5, users=1, issues=0,
+  pullrequests=0, webhookdeliveries=0; total 1316); all index names, keys,
+  and unique flags match source metadata.json for every collection. Isolated
+  database dropped after verification; backup files retained locally
+  (excluded from Git). Atlas production database `frieday_prod` was never
+  written to. Safety-guard tests in
+  `server/tests/backup-restore.safety.test.js`: **18 pass / 0 fail**.
+  Integration drill test (`backup-restore.integration.test.js`): **2 pass /
+  0 fail**. The in-repo script's Atlas-refusal guard is intentionally kept
+  (Atlas backups are performed by the owner-tooling path documented in
+  `docs/RUNBOOK.md §12`, not by `scripts/backup-restore.js`).
 
 **Phase 9 Definition of Done:** production deployment live + smoke-verified; RUNBOOK.md covers all required incident scenarios; `prd.md §23` criteria all PASS on live production; no Phase 10 work started.
 
@@ -278,12 +287,19 @@
 **Item 1 — MongoDB Atlas backup/restore:** `scripts/backup-restore.js`
 implemented with safety guards (credential redaction, Atlas URI refusal,
 production DB name refusal, target≠source enforcement). Safety-guard tests:
-18 pass / 0 fail. Integration test skips when MongoDB unavailable. **Actual
-mongodump backup found and restored to disposable `frieday_restore_check`:**
-all 11 collections, all indexes, all document counts verified. **Backup is of
-`frieday` database, NOT `frieday_prod`** — production `frieday_prod` data is
-NOT in this backup. **Atlas production snapshot restore: owner-blocked** (needs
-owner Atlas credentials; backup file `frieday` ≠ production `frieday_prod`).
+18 pass / 0 fail. Integration test: 2 pass / 0 fail. **Production
+`frieday_prod` recovery drill — VERIFIED COMPLETE (2026-10-20):** full
+`mongodump` from Atlas (`frieday.klryq5o.mongodb.net/frieday_prod`,
+URI never logged) to `C:\Temp\frieday_prod_backup_20261020103600\`
+(mongodump exit 0; 11 BSON + 11 metadata.json). `mongorestore` with
+namespace remap `frieday_prod.*` → `frieday_prod_restored_20261020103600.*`
+to local `127.0.0.1:27017` (no `--drop`): 1316 documents restored, 0
+failures. All 11 collection names, document counts (906+341+23+14+14+12+5+1+0+0+0),
+and index definitions (names, keys, unique flags) verified identical
+between source dump and restored DB. Isolated restore dropped after
+verification; Atlas was never written to. The script's Atlas URI refusal
+is deliberately preserved — production backups use `mongodump` directly
+per `docs/RUNBOOK.md §12`.
 
 **Item 2 — Live AI provider:** `AI_API_KEY` placeholder added to `.env.example`. Provider contract + configuration validation tests added (`server/tests/ai.provider.test.js`). Full AI layer: 47 pass / 0 fail (existing) + new tests pass. `AI_ENABLED=false` by default — production provider **not enabled** (owner credentials/approval required).
 

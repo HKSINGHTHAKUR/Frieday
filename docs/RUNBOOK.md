@@ -555,15 +555,50 @@ All document counts match the backup BSON file sizes. All indexes were recreated
 from metadata. Temporary database `frieday_restore_check` was dropped after
 verification.
 
-**Important discrepancy:** The backed-up database is named `frieday`, but the
-production database is `frieday_prod`. The backup does **not** contain
-`frieday_prod` data. This backup verifies the mongodump/mongorestore restore
-procedure works, but does **not** verify recovery of `frieday_prod`.
+**Prior drill scope (preserved for history):** The earlier `frieday` dump was a
+local drill — it validated the mongodump/mongorestore round-trip against a
+local database, not against the Atlas production cluster. The production
+`frieday_prod` recovery drill below supersedes that for production readiness
+purposes; both are kept to make the distinction explicit.
 
-**Atlas M0 console snapshot restore remains NOT VERIFIED** — requires owner
-Atlas credentials. The local drill proves the mongodump/mongorestore procedure
-works, but does not prove Atlas connectivity, permissions, or snapshot restore
-against the production cluster.
+**Production recovery drill — VERIFIED COMPLETE (2026-10-20):**
+
+A full logical backup/restore drill was executed end-to-end against the Atlas
+production cluster. The connection URI was read from the local `.env` and
+never written to logs, documentation, or committed files.
+
+| Item                      | Detail                                                                    |
+| ------------------------- | ------------------------------------------------------------------------- |
+| Source                    | Atlas cluster `frieday.klryq5o.mongodb.net`, database `frieday_prod`      |
+| Backup tool               | mongodump 100.19.1                                                        |
+| Backup output             | `C:\Temp\frieday_prod_backup_20261020103600\frieday_prod\` (11 BSON + 11 metadata.json + prelude.json) |
+| mongodump exit code       | 0                                                                         |
+| Isolated restore target   | Local `mongodb://127.0.0.1:27017`, database `frieday_prod_restored_20261020103600` |
+| Restore tool              | mongorestore 100.19.1, `--nsFrom="frieday_prod.*" --nsTo="frieday_prod_restored_20261020103600.*"` (no `--drop`) |
+| mongorestore result       | 1316 document(s) restored successfully, 0 failures                        |
+| Production write?         | NO — restore target was always local; no `mongorestore` or `--drop` was ever pointed at Atlas |
+
+**Verification matrix (source dump BSON/metadata vs restored local DB):**
+
+| Check               | Source evidence                                   | Restored evidence                  | Result |
+| ------------------- | ------------------------------------------------- | ---------------------------------- | ------ |
+| Collection list     | 11 collections in dump                            | 11 collections in restored DB      | PASS   |
+| Document counts     | activitybuckets=906, commits=341, insights=23, repositories=14, languagesnapshots=14, syncjobs=12, syncstates=5, users=1, issues=0, pullrequests=0, webhookdeliveries=0 (total 1316) | Identical per-collection, total 1316 | PASS   |
+| Index definitions   | All names, keys, and `unique` flags from metadata.json | Match for every collection      | PASS   |
+| mongodump exit code | 0                                                 | n/a                                | PASS   |
+| mongorestore exit   | n/a                                               | 0 failures across 1316 docs        | PASS   |
+
+**Cleanup:** The isolated restored database `frieday_prod_restored_20261020103600`
+was dropped after the verification report was written (see §12 cleanup policy).
+The Atlas production database `frieday_prod` was not touched. Backup files at
+`C:\Temp\frieday_prod_backup_20261020103600\` are retained locally and are
+excluded from Git — they are never committed.
+
+**What is still owner-only:** This procedure (manual `mongodump` from a trusted
+operator machine) is the authoritative recovery path on M0 free tier. Atlas
+console snapshot restore and promotion of a restored cluster into production
+still require explicit owner action — see §8 for the guarded restore-to-new-cluster
+procedure.
 
 ---
 
