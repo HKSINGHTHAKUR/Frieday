@@ -57,7 +57,13 @@ function createAiExplainer(deps = {}) {
       } catch (err) {
         // Graceful degradation (prd.md §19): fall back to the deterministic
         // text. fallbackReason is internal observability, stripped by routes.
-        return { ...templateExplain(insightInput), fallbackReason: (err && err.code) || 'PROVIDER_ERROR' };
+        // Never log or return provider credentials, full env, or user data.
+        return {
+          ...templateExplain(insightInput),
+          fallbackReason: (err && err.code) || 'PROVIDER_ERROR',
+          fallbackStatus: (err && err.status) ?? null,
+          fallbackDetails: (err && err.details) ?? null,
+        };
       }
     },
   };

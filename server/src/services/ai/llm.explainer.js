@@ -22,13 +22,15 @@ const PROMPT_VERSION = 'v1';
 /** Typed AI-layer error. Never carries provider payloads or credentials. */
 class AiError extends Error {
   /**
-   * @param {{ code: string, message: string, retryable?: boolean }} parts
+   * @param {{ code: string, message: string, retryable?: boolean, status?: number, details?: object }} parts
    */
   constructor(parts) {
     super(parts.message);
     this.name = 'AiError';
     this.code = parts.code;
     this.retryable = Boolean(parts.retryable);
+    this.status = parts.status ?? null;
+    this.details = parts.details ?? null;
   }
 }
 
@@ -95,6 +97,33 @@ function isTransientStatus(status) {
   return status === 408 || status === 429 || status >= 500;
 }
 
+/**
+ * Extract sanitized diagnostic info from a provider error response.
+ * Never returns the full body, authorization headers, or credentials.
+ * Google format: { error: { code, message, status } }
+ * OpenAI format: { error: { message, type, code } }
+ * @param {number} statusCode HTTP status code
+ * @param {unknown} body parsed response body (may be null)
+ * @returns {{ statusCode: number, providerCode?: string, message?: string }}
+ */
+function sanitizeProviderError(statusCode, body) {
+  const result = { statusCode };
+  if (!body || typeof body !== 'object') return result;
+
+  // Gemini wraps errors in an array: [{error: {...}}]
+  const root = Array.isArray(body) && body.length > 0 && body[0] && typeof body[0] === 'object' ? body[0] : body;
+
+  const err = root.error;
+  if (err && typeof err === 'object') {
+    if (err.code !== undefined) result.providerCode = String(err.code);
+    else if (err.status !== undefined) result.providerCode = String(err.status);
+
+    const msg = typeof err.message === 'string' ? err.message : undefined;
+    if (msg) result.message = msg.slice(0, 200);
+  }
+  return result;
+}
+
 /** Extract + parse the completion content (OpenAI-compatible shape). */
 function extractContent(payload) {
   const content =
@@ -146,14 +175,29 @@ async function callProvider(llm, messages) {
   clearTimeout(timer);
 
   if (!res.ok) {
+    let errorBody;
+    try {
+      errorBody = await res.json();
+    } catch {
+      errorBody = null;
+    }
+    const sanitized = sanitizeProviderError(res.status, errorBody);
+
     if (isTransientStatus(res.status)) {
       throw new AiError({
         code: 'PROVIDER_TRANSIENT',
         retryable: true,
         message: 'Provider temporarily unavailable.',
+        status: res.status,
+        details: sanitized,
       });
     }
-    throw new AiError({ code: 'PROVIDER_REJECTED', message: 'Provider rejected the request.' });
+    throw new AiError({
+      code: 'PROVIDER_REJECTED',
+      message: 'Provider rejected the request.',
+      status: res.status,
+      details: sanitized,
+    });
   }
 
   let payload;

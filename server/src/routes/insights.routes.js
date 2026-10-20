@@ -7,6 +7,7 @@
  */
 
 const { Router } = require('express');
+const { URL } = require('node:url');
 const mongoose = require('mongoose');
 const requireAuth = require('../middleware/requireAuth');
 const { validate } = require('../utils/validation');
@@ -182,6 +183,10 @@ async function explainHandler(deps, req, res) {
         reqId: req.id,
         msg: 'ai fallback',
         reason: result.fallbackReason,
+        status: result.fallbackStatus,
+        details: result.fallbackDetails,
+        model: config.AI_MODEL,
+        endpoint: config.AI_BASE_URL ? `${new URL(config.AI_BASE_URL).pathname}/chat/completions` : null,
         aiEnabled,
         providerConfigured,
       });
@@ -196,6 +201,10 @@ async function explainHandler(deps, req, res) {
       reqId: req.id,
       msg: 'ai explain error',
       code: err && typeof err.code === 'string' ? err.code : 'UNKNOWN',
+      status: err && typeof err.status === 'number' ? err.status : null,
+      details: err && typeof err.details === 'object' ? err.details : null,
+      model: config.AI_MODEL,
+      endpoint: config.AI_BASE_URL ? `${new URL(config.AI_BASE_URL).pathname}/chat/completions` : null,
       aiEnabled,
       providerConfigured,
     });

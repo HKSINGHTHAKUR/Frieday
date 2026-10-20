@@ -182,3 +182,150 @@ describe('Gemini provider via OpenAI compatibility layer (T6.2 audit)', () => {
     assert.equal(resultRepo.fallbackReason, 'AI_VALIDATION');
   });
 });
+
+describe('Gemini provider error diagnostics (T6.2 audit)', () => {
+  const errorResponse = (status, body) => ({
+    ok: false,
+    status,
+    json: async () => body,
+  });
+
+  it('400 with Google error body → PROVIDER_REJECTED with status and sanitized details', async () => {
+    const { impl } = recordingFetch([
+      {
+        response: errorResponse(400, {
+          error: {
+            code: 400,
+            message: 'API key not valid. Please pass a valid API key.',
+            status: 'INVALID_ARGUMENT',
+          },
+        }),
+      },
+    ]);
+    const explainer = createAiExplainer({ config: GEMINI_CONFIG, fetchImpl: impl });
+    const result = await explainer.explain(INPUT);
+
+    assert.equal(result.aiLabel, false);
+    assert.equal(result.fallbackReason, 'PROVIDER_REJECTED');
+    assert.equal(result.fallbackStatus, 400);
+    assert.equal(result.fallbackDetails.providerCode, '400');
+    assert.ok(result.fallbackDetails.message.includes('API key not valid'));
+    // Never leak the API key into the client-visible result
+    assert.ok(!JSON.stringify(result).includes(GEMINI_CONFIG.AI_API_KEY));
+  });
+
+  it('401 with Google error body → PROVIDER_REJECTED with status and sanitized details', async () => {
+    const { impl } = recordingFetch([
+      {
+        response: errorResponse(401, {
+          error: {
+            code: 401,
+            message: 'Request had invalid authentication credentials.',
+            status: 'UNAUTHENTICATED',
+          },
+        }),
+      },
+    ]);
+    const explainer = createAiExplainer({ config: GEMINI_CONFIG, fetchImpl: impl });
+    const result = await explainer.explain(INPUT);
+
+    assert.equal(result.aiLabel, false);
+    assert.equal(result.fallbackReason, 'PROVIDER_REJECTED');
+    assert.equal(result.fallbackStatus, 401);
+    assert.equal(result.fallbackDetails.providerCode, '401');
+    assert.ok(result.fallbackDetails.message.includes('authentication'));
+    assert.ok(!JSON.stringify(result).includes(GEMINI_CONFIG.AI_API_KEY));
+  });
+
+  it('403 quota exceeded → PROVIDER_REJECTED with status and sanitized details', async () => {
+    const { impl } = recordingFetch([
+      {
+        response: errorResponse(403, {
+          error: { code: 403, message: 'The API key has no quota remaining.', status: 'PERMISSION_DENIED' },
+        }),
+      },
+    ]);
+    const explainer = createAiExplainer({ config: GEMINI_CONFIG, fetchImpl: impl });
+    const result = await explainer.explain(INPUT);
+
+    assert.equal(result.aiLabel, false);
+    assert.equal(result.fallbackReason, 'PROVIDER_REJECTED');
+    assert.equal(result.fallbackStatus, 403);
+    assert.equal(result.fallbackDetails.providerCode, '403');
+    assert.ok(result.fallbackDetails.message.includes('quota'));
+    assert.ok(!JSON.stringify(result).includes(GEMINI_CONFIG.AI_API_KEY));
+  });
+
+  it('error body without error field → PROVIDER_REJECTED with status only', async () => {
+    const { impl } = recordingFetch([{ response: errorResponse(400, { some: 'random body' }) }]);
+    const explainer = createAiExplainer({ config: GEMINI_CONFIG, fetchImpl: impl });
+    const result = await explainer.explain(INPUT);
+
+    assert.equal(result.aiLabel, false);
+    assert.equal(result.fallbackReason, 'PROVIDER_REJECTED');
+    assert.equal(result.fallbackStatus, 400);
+    assert.equal(result.fallbackDetails.providerCode, undefined);
+    assert.equal(result.fallbackDetails.message, undefined);
+  });
+
+  it('non-JSON error body → PROVIDER_REJECTED with status only', async () => {
+    const impl = async () => ({
+      ok: false,
+      status: 400,
+      json: async () => {
+        throw new Error('not json');
+      },
+    });
+    const explainer = createAiExplainer({ config: GEMINI_CONFIG, fetchImpl: impl });
+    const result = await explainer.explain(INPUT);
+
+    assert.equal(result.aiLabel, false);
+    assert.equal(result.fallbackReason, 'PROVIDER_REJECTED');
+    assert.equal(result.fallbackStatus, 400);
+    assert.ok(!result.fallbackDetails || result.fallbackDetails.providerCode === undefined);
+    assert.ok(!JSON.stringify(result).includes(GEMINI_CONFIG.AI_API_KEY));
+  });
+
+  it('OpenAI-format error body → sanitized correctly', async () => {
+    const { impl } = recordingFetch([
+      {
+        response: errorResponse(401, {
+          error: { message: 'Incorrect API key provided', type: 'invalid_request_error', code: 401 },
+        }),
+      },
+    ]);
+    const explainer = createAiExplainer({ config: GEMINI_CONFIG, fetchImpl: impl });
+    const result = await explainer.explain(INPUT);
+
+    assert.equal(result.aiLabel, false);
+    assert.equal(result.fallbackReason, 'PROVIDER_REJECTED');
+    assert.equal(result.fallbackStatus, 401);
+    assert.equal(result.fallbackDetails.providerCode, '401');
+    assert.ok(result.fallbackDetails.message.includes('Incorrect API key provided'));
+  });
+
+  it('array-wrapped Google error body → unwrapped and sanitized', async () => {
+    const { impl } = recordingFetch([
+      {
+        response: errorResponse(404, [
+          {
+            error: {
+              code: 404,
+              message: 'This model models/gemini-old is no longer available.',
+              status: 'NOT_FOUND',
+            },
+          },
+        ]),
+      },
+    ]);
+    const explainer = createAiExplainer({ config: GEMINI_CONFIG, fetchImpl: impl });
+    const result = await explainer.explain(INPUT);
+
+    assert.equal(result.aiLabel, false);
+    assert.equal(result.fallbackReason, 'PROVIDER_REJECTED');
+    assert.equal(result.fallbackStatus, 404);
+    assert.equal(result.fallbackDetails.providerCode, '404');
+    assert.ok(result.fallbackDetails.message.includes('no longer available'));
+    assert.ok(!JSON.stringify(result).includes(GEMINI_CONFIG.AI_API_KEY));
+  });
+});
