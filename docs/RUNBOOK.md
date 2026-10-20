@@ -519,12 +519,51 @@ backup → restore → verify → cleanup drill ran successfully against a local
 MongoDB instance at `mongodb://127.0.0.1:27017` using disposable synthetic
 databases (`frieday_backup_drill_source`, `frieday_backup_drill_target`).
 
-**Production backup: not performed.** The `.env` `MONGO_URI` is an Atlas
-`mongodb+srv://` URI. `scripts/backup-restore.js` correctly refuses Atlas URIs
-as a safety guard (exit code 2). To back up the non-production `frieday`
-database from Atlas, the owner must use `mongodump`/`mongorestore` directly
-from a machine with Atlas access (see owner commands above), never printing
-the URI, and never touching `frieday_prod`.
+**Actual mongodump backup found and verified (2026-10-20):**
+
+| Item                 | Detail                                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Backup location      | `C:\Users\harsh\Downloads\mongodb-database-tools-windows-x86_64-100.19.1\mongodb-database-tools-windows-x86_64-100.19.1\bin\dump\frieday\` |
+| Source database      | `frieday` (NOT `frieday_prod` — see discrepancy below)                                                                                     |
+| Backup tool          | mongodump 100.19.1                                                                                                                         |
+| Restore tool         | mongorestore 100.19.1                                                                                                                      |
+| mongosh availability | NOT available (no `mongosh.exe` in tools directory)                                                                                        |
+| Local mongod         | Running on port 27017 (PID verified)                                                                                                       |
+
+**Backup structure:** Standard mongodump output with 12 collections, each having a
+`.bson` + `.metadata.json` pair. All metadata files contain complete index
+definitions. Three collections are empty (0-byte `.bson`): `issues`,
+`pullrequests`, `webhookdeliveries`.
+
+**Restore test to disposable database `frieday_restore_check`:**
+
+| Collection        | Documents | Indexes                                                     |
+| ----------------- | --------- | ----------------------------------------------------------- |
+| commits           | 334       | _id_, userId_1_sha_1_repoId_1, userId_1_authoredAt_-1       |
+| activitybuckets   | 789       | _id_, userId_1_range_1_granularity_1_bucketStart_1_repoId_1 |
+| insights          | 22        | _id_, userId_1_range_1_templateId_1_repoId_1                |
+| languagesnapshots | 13        | _id_, userId_1_repoId_1_fetchedAt_1                         |
+| repositories      | 13        | _id_, userId_1_githubId_1                                   |
+| syncstates        | 6         | _id_, userId_1_resource_1                                   |
+| syncjobs          | 4         | _id_, userId_1_createdAt_-1, userId_1                       |
+| users             | 2         | _id_, githubId_1                                            |
+| webhookdeliveries | 0         | _id_, deliveryId_1                                          |
+| pullrequests      | 0         | _id_, userId_1_repoId_1_number_1                            |
+| issues            | 0         | _id_, userId_1_repoId_1_number_1                            |
+
+All document counts match the backup BSON file sizes. All indexes were recreated
+from metadata. Temporary database `frieday_restore_check` was dropped after
+verification.
+
+**Important discrepancy:** The backed-up database is named `frieday`, but the
+production database is `frieday_prod`. The backup does **not** contain
+`frieday_prod` data. This backup verifies the mongodump/mongorestore restore
+procedure works, but does **not** verify recovery of `frieday_prod`.
+
+**Atlas M0 console snapshot restore remains NOT VERIFIED** — requires owner
+Atlas credentials. The local drill proves the mongodump/mongorestore procedure
+works, but does not prove Atlas connectivity, permissions, or snapshot restore
+against the production cluster.
 
 ---
 
