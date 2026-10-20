@@ -511,6 +511,21 @@ restore must follow §8 (restore to a **new** cluster first, verify with
 `node scripts/smoke.js <staging-url>`, then repoint `MONGO_URI`). Do not
 restore over the live cluster.
 
+#### Actual drill outcome (2026-10-20)
+
+Safety-guard tests (`server/tests/backup-restore.safety.test.js`): **18 pass / 0 fail**.
+Integration test (`server/tests/backup-restore.integration.test.js`): **2 pass / 0 fail** — the full
+backup → restore → verify → cleanup drill ran successfully against a local
+MongoDB instance at `mongodb://127.0.0.1:27017` using disposable synthetic
+databases (`frieday_backup_drill_source`, `frieday_backup_drill_target`).
+
+**Production backup: not performed.** The `.env` `MONGO_URI` is an Atlas
+`mongodb+srv://` URI. `scripts/backup-restore.js` correctly refuses Atlas URIs
+as a safety guard (exit code 2). To back up the non-production `frieday`
+database from Atlas, the owner must use `mongodump`/`mongorestore` directly
+from a machine with Atlas access (see owner commands above), never printing
+the URI, and never touching `frieday_prod`.
+
 ---
 
 ## 13. Escalation Path
