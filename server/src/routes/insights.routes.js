@@ -123,7 +123,12 @@ async function insightsHandler(deps, req, res) {
  */
 async function explainHandler(deps, req, res) {
   const config = deps.config ?? getEnv();
-  if (!config.AI_ENABLED) {
+  const aiEnabled = Boolean(config.AI_ENABLED);
+  const providerConfigured = Boolean(
+    config.AI_PROVIDER && config.AI_MODEL && config.AI_BASE_URL && config.AI_API_KEY
+  );
+  if (!aiEnabled) {
+    req.log.warn({ reqId: req.id, msg: 'ai explain disabled', aiEnabled: false, providerConfigured });
     return res.status(501).json({
       error: { code: 'AI_DISABLED', message: 'AI explanations are not enabled.', retryable: false },
     });
@@ -173,7 +178,13 @@ async function explainHandler(deps, req, res) {
     // fallbackReason stays internal (route log only) — the client gets the
     // contract fields plus the honest aiLabel flag.
     if (result.fallbackReason) {
-      req.log.warn({ reqId: req.id, msg: 'ai fallback', reason: result.fallbackReason });
+      req.log.warn({
+        reqId: req.id,
+        msg: 'ai fallback',
+        reason: result.fallbackReason,
+        aiEnabled,
+        providerConfigured,
+      });
     }
     return res.json({
       paraphrase: result.paraphrase,
@@ -181,6 +192,13 @@ async function explainHandler(deps, req, res) {
       aiLabel: Boolean(result.aiLabel),
     });
   } catch (err) {
+    req.log.warn({
+      reqId: req.id,
+      msg: 'ai explain error',
+      code: err && typeof err.code === 'string' ? err.code : 'UNKNOWN',
+      aiEnabled,
+      providerConfigured,
+    });
     return sendError(req, res, err);
   }
 }
