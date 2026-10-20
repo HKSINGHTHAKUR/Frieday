@@ -12,7 +12,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { providerConfig, AiError, providerConfigDiagnostic } = require('../src/services/ai/llm.explainer');
+const { providerConfig, AiError } = require('../src/services/ai/llm.explainer');
 const { createAiExplainer } = require('../src/services/ai/explainer.interface');
 
 const INPUT = {
@@ -220,93 +220,5 @@ describe('ai configuration validation (Item 2)', () => {
     assert.ok(!JSON.stringify(result).includes(secret), 'API key must not appear in result');
     assert.equal(result.aiLabel, false);
     assert.equal(result.fallbackReason, 'PROVIDER_UNREACHABLE');
-  });
-});
-
-describe('providerConfig: NVIDIA var selection (regression — GitHub issue: AI_CONFIG with nvidia provider)', () => {
-  const NVIDIA_COMPLETE = {
-    AI_ENABLED: true,
-    AI_PROVIDER: 'nvidia',
-    NVIDIA_MODEL: 'meta/llama-3.1-8b-instruct',
-    NVIDIA_BASE_URL: 'https://integrate.api.nvidia.com/v1',
-    NVIDIA_API_KEY: 'nvidia-test-key',
-  };
-
-  it('AI_PROVIDER=nvidia resolves using NVIDIA_API_KEY/NVIDIA_MODEL/NVIDIA_BASE_URL', () => {
-    const result = providerConfig(NVIDIA_COMPLETE);
-    assert.ok(result, 'providerConfig should return a config when all NVIDIA vars are present');
-    assert.equal(result.model, 'meta/llama-3.1-8b-instruct');
-    assert.equal(result.baseUrl, 'https://integrate.api.nvidia.com/v1');
-    assert.equal(result.apiKey, 'nvidia-test-key');
-  });
-
-  it('AI_PROVIDER=nvidia returns null when NVIDIA_MODEL is missing (even if AI_MODEL is set)', () => {
-    const result = providerConfig({
-      ...NVIDIA_COMPLETE,
-      NVIDIA_MODEL: '',
-      AI_MODEL: 'gpt-4o-mini', // generic var should NOT be used when provider=nvidia
-    });
-    assert.equal(result, null, 'providerConfig should return null when NVIDIA_MODEL is missing');
-  });
-
-  it('AI_PROVIDER=nvidia returns null when NVIDIA_BASE_URL is missing', () => {
-    const result = providerConfig({
-      ...NVIDIA_COMPLETE,
-      NVIDIA_BASE_URL: '',
-    });
-    assert.equal(result, null, 'providerConfig should return null when NVIDIA_BASE_URL is missing');
-  });
-
-  it('AI_PROVIDER=nvidia returns null when NVIDIA_API_KEY is missing', () => {
-    const result = providerConfig({
-      ...NVIDIA_COMPLETE,
-      NVIDIA_API_KEY: '',
-    });
-    assert.equal(result, null, 'providerConfig should return null when NVIDIA_API_KEY is missing');
-  });
-
-  it('AI_PROVIDER=nvidia falls back to generic AI_* vars when NVIDIA vars not set', () => {
-    const result = providerConfig({
-      AI_ENABLED: true,
-      AI_PROVIDER: 'nvidia',
-      AI_MODEL: 'gpt-4o-mini',
-      AI_BASE_URL: 'https://api.example.com/v1',
-      AI_API_KEY: 'sk-test-key',
-    });
-    assert.ok(result, 'should fall back to generic AI_* vars');
-    assert.equal(result.model, 'gpt-4o-mini');
-    assert.equal(result.baseUrl, 'https://api.example.com/v1');
-    assert.equal(result.apiKey, 'sk-test-key');
-  });
-
-  it('providerConfigDiagnostic reports presence booleans without leaking the API key', () => {
-    const diag = providerConfigDiagnostic(NVIDIA_COMPLETE);
-    assert.equal(diag.provider, 'nvidia');
-    assert.equal(diag.aiEnabled, true);
-    assert.equal(diag.modelPresent, true);
-    assert.equal(diag.baseUrlPresent, true);
-    assert.equal(diag.apiKeyPresent, true);
-    assert.equal(diag.resolvedModel, 'meta/llama-3.1-8b-instruct');
-    assert.equal(diag.resolvedBaseUrl, 'https://integrate.api.nvidia.com/v1');
-    assert.equal(diag.providerConfigured, true);
-    // Never leak the key
-    assert.ok(!JSON.stringify(diag).includes('nvidia-test-key'));
-  });
-
-  it('providerConfigDiagnostic reports missing NVIDIA vars as absent', () => {
-    const diag = providerConfigDiagnostic({
-      AI_ENABLED: true,
-      AI_PROVIDER: 'nvidia',
-      NVIDIA_MODEL: '',
-      NVIDIA_BASE_URL: '',
-      NVIDIA_API_KEY: '',
-    });
-    assert.equal(diag.provider, 'nvidia');
-    assert.equal(diag.modelPresent, false);
-    assert.equal(diag.baseUrlPresent, false);
-    assert.equal(diag.apiKeyPresent, false);
-    assert.equal(diag.resolvedModel, null);
-    assert.equal(diag.resolvedBaseUrl, null);
-    assert.equal(diag.providerConfigured, false);
   });
 });

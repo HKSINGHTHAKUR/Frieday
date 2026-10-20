@@ -22,15 +22,17 @@ export default function InsightCard({ insight, children }) {
       <p className="text-sm text-text2">{text}</p>
       {metrics && Object.keys(metrics).length > 0 && (
         <div className="flex flex-wrap gap-8">
-          {Object.entries(metrics).map(([key, value]) => (
-            <span
-              key={key}
-              className="inline-flex items-center gap-4 rounded-md bg-surface2 px-8 py-4 text-sm text-text2"
-            >
-              <span className="text-text">{key}:</span>
-              <span className="mono font-medium text-text">{String(value)}</span>
-            </span>
-          ))}
+          {Object.entries(metrics)
+            .filter(([, value]) => value != null)
+            .map(([key, value]) => (
+              <span
+                key={key}
+                className="inline-flex items-center gap-4 rounded-md bg-surface2 px-8 py-4 text-sm text-text2"
+              >
+                <span className="text-text">{key}:</span>
+                <span className="mono font-medium text-text">{String(value)}</span>
+              </span>
+            ))}
         </div>
       )}
       <p className="text-xs text-text2">

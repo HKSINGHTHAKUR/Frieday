@@ -22,7 +22,7 @@ const PROMPT_VERSION = 'v1';
 /** Typed AI-layer error. Never carries provider payloads or credentials. */
 class AiError extends Error {
   /**
-   * @param {{ code: string, message: string, retryable?: boolean, status?: number, details?: object, retryAfter?: number }} parts
+   * @param {{ code: string, message: string, retryable?: boolean, status?: number, details?: object }} parts
    */
   constructor(parts) {
     super(parts.message);
@@ -31,7 +31,6 @@ class AiError extends Error {
     this.retryable = Boolean(parts.retryable);
     this.status = parts.status ?? null;
     this.details = parts.details ?? null;
-    this.retryAfter = parts.retryAfter ?? null;
   }
 }
 
@@ -80,126 +79,29 @@ function buildUserPrompt(insightInput) {
 /**
  * Resolved provider configuration from env only; incomplete config is a
  * typed failure (never a partial call).
- *
- * Provider selection:
- *   - AI_PROVIDER=nvidia → prefer NVIDIA_API_KEY/NVIDIA_MODEL/NVIDIA_BASE_URL
- *     (fall back to generic AI_API_KEY/AI_MODEL/AI_BASE_URL)
- *   - Any other AI_PROVIDER → use generic AI_API_KEY/AI_MODEL/AI_BASE_URL
  * @param {object} config validated env config
  */
 function providerConfig(config) {
-  const provider = String(config.AI_PROVIDER ?? '')
-    .trim()
-    .toLowerCase();
-  const isNvidia = provider === 'nvidia';
-
-  const model = String(
-    isNvidia ? (config.NVIDIA_MODEL ?? config.AI_MODEL) : (config.AI_MODEL ?? config.NVIDIA_MODEL)
-  ).trim();
-  const baseUrl = String(
-    isNvidia ? (config.NVIDIA_BASE_URL ?? config.AI_BASE_URL) : (config.AI_BASE_URL ?? config.NVIDIA_BASE_URL)
-  )
+  const model = String(config.AI_MODEL ?? '').trim();
+  const baseUrl = String(config.AI_BASE_URL ?? '')
     .trim()
     .replace(/\/+$/, '');
-  const apiKey = String(
-    isNvidia ? (config.NVIDIA_API_KEY ?? config.AI_API_KEY) : (config.AI_API_KEY ?? config.NVIDIA_API_KEY)
-  ).trim();
-
+  const apiKey = String(config.AI_API_KEY ?? '').trim();
   if (!model || !baseUrl || !apiKey) {
     return null;
   }
-  return {
-    model,
-    baseUrl,
-    apiKey,
-    // NVIDIA NIM ChatRequest schema has additionalProperties: false and does
-    // not document response_format; omit it for NVIDIA to avoid rejection.
-    supportsResponseFormat: !isNvidia,
-  };
-}
-
-/**
- * Safe diagnostic for AI provider configuration. Reports only whether each
- * required variable is present (boolean), the selected provider, and the
- * resolved model/base URL. Never returns the API key, authorization headers,
- * or any secret-bearing values.
- * @param {object} config validated env config
- * @returns {{ provider: string, aiEnabled: boolean, modelPresent: boolean, baseUrlPresent: boolean, apiKeyPresent: boolean, resolvedModel: string | null, resolvedBaseUrl: string | null, providerConfigured: boolean }}
- */
-function providerConfigDiagnostic(config) {
-  const provider = String(config.AI_PROVIDER ?? '')
-    .trim()
-    .toLowerCase();
-  const isNvidia = provider === 'nvidia';
-
-  const modelPresent = Boolean(
-    isNvidia ? (config.NVIDIA_MODEL ?? config.AI_MODEL) : (config.AI_MODEL ?? config.NVIDIA_MODEL)
-  );
-  const baseUrlPresent = Boolean(
-    isNvidia ? (config.NVIDIA_BASE_URL ?? config.AI_BASE_URL) : (config.AI_BASE_URL ?? config.NVIDIA_BASE_URL)
-  );
-  const apiKeyPresent = Boolean(
-    isNvidia ? (config.NVIDIA_API_KEY ?? config.AI_API_KEY) : (config.AI_API_KEY ?? config.NVIDIA_API_KEY)
-  );
-
-  const resolved = providerConfig(config);
-  return {
-    provider,
-    aiEnabled: Boolean(config.AI_ENABLED),
-    modelPresent,
-    baseUrlPresent,
-    apiKeyPresent,
-    resolvedModel: resolved?.model ?? null,
-    resolvedBaseUrl: resolved?.baseUrl ?? null,
-    providerConfigured: Boolean(resolved),
-  };
+  return { model, baseUrl, apiKey };
 }
 
 function isTransientStatus(status) {
   return status === 408 || status === 429 || status >= 500;
 }
 
-/** Sleep for ms milliseconds. */
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Parse a Retry-After header value into milliseconds.
- * Handles both HTTP-date and delta-seconds forms.
- * Returns null when the header is absent or unparseable.
- * @param {string | undefined} headerValue
- * @returns {number | null}
- */
-function parseRetryAfter(headerValue) {
-  if (!headerValue) return null;
-  const delta = Number(headerValue);
-  if (Number.isFinite(delta) && delta >= 0) return delta * 1000;
-  // HTTP-date form
-  const date = new Date(headerValue);
-  if (!isNaN(date.getTime())) return Math.max(0, date.getTime() - Date.now());
-  return null;
-}
-
-/**
- * Jittered backoff delay for attempt index i (0-based).
- * Base: 250ms, cap: 8000ms, jitter: ±25%.
- * @param {number} attemptIndex
- * @returns {number} milliseconds
- */
-function backoffMs(attemptIndex) {
-  const base = 250;
-  const cap = 8000;
-  const raw = Math.min(base * Math.pow(2, attemptIndex), cap);
-  const jitter = raw * 0.25 * (Math.random() * 2 - 1);
-  return Math.max(0, Math.round(raw + jitter));
-}
-
 /**
  * Extract sanitized diagnostic info from a provider error response.
  * Never returns the full body, authorization headers, or credentials.
- * Google/OpenAI format: { error: { code/status, message } }
- * NVIDIA format: { status, detail, type } at root level
+ * Google format: { error: { code, message, status } }
+ * OpenAI format: { error: { message, type, code } }
  * @param {number} statusCode HTTP status code
  * @param {unknown} body parsed response body (may be null)
  * @returns {{ statusCode: number, providerCode?: string, message?: string }}
@@ -213,19 +115,13 @@ function sanitizeProviderError(statusCode, body) {
     Array.isArray(body) && body.length > 0 && body[0] && typeof body[0] === 'object' ? body[0] : body;
 
   const err = root.error;
-  // Google/OpenAI: fields nested under 'error'
   if (err && typeof err === 'object') {
     if (err.code !== undefined) result.providerCode = String(err.code);
     else if (err.status !== undefined) result.providerCode = String(err.status);
-    const msg =
-      typeof err.message === 'string' ? err.message : typeof err.detail === 'string' ? err.detail : undefined;
+
+    const msg = typeof err.message === 'string' ? err.message : undefined;
     if (msg) result.message = msg.slice(0, 200);
-    return result;
   }
-  // NVIDIA: fields at root level (status, detail, type)
-  if (root.status !== undefined) result.providerCode = String(root.status);
-  if (typeof root.detail === 'string') result.message = root.detail.slice(0, 200);
-  else if (typeof root.title === 'string') result.message = root.title.slice(0, 200);
   return result;
 }
 
@@ -258,7 +154,7 @@ async function callProvider(llm, messages) {
         model: llm.model,
         messages,
         temperature: 0,
-        ...(llm.supportsResponseFormat ? { response_format: { type: 'json_object' } } : {}),
+        response_format: { type: 'json_object' },
       }),
       signal: controller.signal,
     });
@@ -289,14 +185,12 @@ async function callProvider(llm, messages) {
     const sanitized = sanitizeProviderError(res.status, errorBody);
 
     if (isTransientStatus(res.status)) {
-      const retryAfter = parseRetryAfter(res.headers?.get('retry-after'));
       throw new AiError({
         code: 'PROVIDER_TRANSIENT',
         retryable: true,
         message: 'Provider temporarily unavailable.',
         status: res.status,
         details: sanitized,
-        retryAfter,
       });
     }
     throw new AiError({
@@ -316,16 +210,10 @@ async function callProvider(llm, messages) {
   return extractContent(payload);
 }
 
-/**
- * Bounded retries with exponential backoff and jitter.
- * Retries only typed-transient AiError failures.
- * Honors Retry-After when the provider supplies it.
- * @param {Function} attempt
- * @param {number} maxAttempts
- */
-async function withRetry(attempt, maxAttempts = MAX_ATTEMPTS) {
+/** At most 1 retry; only typed-transient failures retry. */
+async function withRetry(attempt) {
   let lastError = null;
-  for (let i = 0; i < maxAttempts; i += 1) {
+  for (let i = 0; i < MAX_ATTEMPTS; i += 1) {
     try {
       return await attempt();
     } catch (err) {
@@ -333,10 +221,6 @@ async function withRetry(attempt, maxAttempts = MAX_ATTEMPTS) {
       if (!(err instanceof AiError) || !err.retryable) {
         throw err;
       }
-      // Last attempt: don't sleep, just rethrow.
-      if (i + 1 >= maxAttempts) break;
-      const delayMs = err.retryAfter ?? backoffMs(i);
-      await sleep(delayMs);
     }
   }
   throw lastError;
@@ -358,7 +242,7 @@ function createLlmExplainer({ config, fetchImpl = fetch, timeoutMs = DEFAULT_TIM
         { role: 'system', content: buildSystemPrompt() },
         { role: 'user', content: buildUserPrompt(insightInput) },
       ];
-      const raw = await withRetry(() => callProvider(llm, messages), MAX_ATTEMPTS);
+      const raw = await withRetry(() => callProvider(llm, messages));
       const result = validateAiOutput(raw, insightInput);
       if (!result.ok) {
         throw new AiError({ code: 'AI_VALIDATION', message: `Rejected AI output (${result.detail}).` });
@@ -374,6 +258,5 @@ module.exports = {
   buildSystemPrompt,
   buildUserPrompt,
   providerConfig,
-  providerConfigDiagnostic,
   PROMPT_VERSION,
 };

@@ -35,15 +35,17 @@ export default function InsightsCard({ insights = [] }) {
                   </div>
                   <p className="text-text2">{insight.text}</p>
                   <div className="mt-8 flex flex-wrap gap-8">
-                    {Object.entries(insight.metrics || {}).map(([k, v]) => (
-                      <span
-                        key={k}
-                        className="inline-flex items-center gap-4 px-8 py-4 rounded-md bg-surface2 text-sm text-text2"
-                      >
-                        <span className="text-text3">{k}:</span>
-                        <span className="font-mono font-medium text-text">{v}</span>
-                      </span>
-                    ))}
+                    {Object.entries(insight.metrics || {})
+                      .filter(([, v]) => v != null)
+                      .map(([k, v]) => (
+                        <span
+                          key={k}
+                          className="inline-flex items-center gap-4 px-8 py-4 rounded-md bg-surface2 text-sm text-text2"
+                        >
+                          <span className="text-text3">{k}:</span>
+                          <span className="font-mono font-medium text-text">{v}</span>
+                        </span>
+                      ))}
                   </div>
                   <div className="mt-8 flex items-center gap-8">
                     <Badge tone="info">{insight.confidence}</Badge>

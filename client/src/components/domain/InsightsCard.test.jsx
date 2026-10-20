@@ -88,4 +88,27 @@ describe('InsightsCard (T5.3)', () => {
     );
     expect(duplicateKeyWarnings).toHaveLength(0);
   });
+
+  it('does not render metric chips for null or undefined metric values', () => {
+    const insightWithNullMetric = {
+      ...PROJECT_HEALTH_REPO_A,
+      metrics: {
+        repoId: '64b64b64b64b64b64b64b64b',
+        repoName: 'me/app',
+        previousHealth: 'quiet',
+        currentHealth: 'active',
+        daysSinceActivity: null,
+      },
+    };
+    render(<InsightsCard insights={[insightWithNullMetric]} />);
+
+    // Valid metric chips should still render
+    expect(screen.getByText('repoId:')).toBeTruthy();
+    expect(screen.getByText('repoName:')).toBeTruthy();
+    expect(screen.getByText('previousHealth:')).toBeTruthy();
+    expect(screen.getByText('currentHealth:')).toBeTruthy();
+    // Null metric should NOT render as a chip
+    expect(screen.queryByText('daysSinceActivity:')).toBeNull();
+    expect(screen.queryByText('null')).toBeNull();
+  });
 });
