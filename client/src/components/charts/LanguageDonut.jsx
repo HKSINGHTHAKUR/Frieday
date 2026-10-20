@@ -17,8 +17,13 @@ function CustomTooltip({ active, payload }) {
   const { name, value } = entry;
   const total = entry.payload?.total || 0;
   const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
+  // NOTE: `commitShare` from the backend is a COMMIT COUNT attributed to the
+  // language (see languages.js — commits are distributed across a repo's
+  // languages by byte proportion, so the value is e.g. 216.83 commits, NOT a
+  // percentage). It must never be rendered with a '%' sign: that produced
+  // impossible values like "commit share 216.8%" in production.
   const commitShare =
-    entry.payload?.commitShare !== undefined ? `${entry.payload.commitShare.toFixed(1)}%` : '—';
+    entry.payload?.commitShare !== undefined ? `${entry.payload.commitShare.toFixed(1)} commits` : '—';
 
   const formatBytes = (bytes) => {
     if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -39,7 +44,7 @@ function CustomTooltip({ active, payload }) {
           <span className="font-mono font-medium text-text">{percentage}%</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-text3">Commit share</span>
+          <span className="text-text3">Commits</span>
           <span className="font-mono font-medium text-text">{commitShare}</span>
         </div>
       </div>
@@ -65,7 +70,9 @@ function CustomLegend({ payload }) {
         const color = COLORS[index % COLORS.length];
         const { name, value, commitShare } = entry;
         const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
-        const commitShareDisplay = commitShare !== undefined ? `${commitShare.toFixed(1)}%` : '—';
+        // `commitShare` is a commit COUNT, not a percentage (see the note in
+        // CustomTooltip). Rendering it with '%' produced values > 100%.
+        const commitShareDisplay = commitShare !== undefined ? `${commitShare.toFixed(1)} commits` : '—';
         const formatBytes = (bytes) => {
           if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
           if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -81,7 +88,7 @@ function CustomLegend({ payload }) {
             <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-8 gap-y-2">
               <span className="min-w-0 break-words text-sm text-text">{name}</span>
               <span className="mono shrink-0 text-xs text-text2">
-                {formatBytes(value)} · {percentage}% · commit share {commitShareDisplay}
+                {formatBytes(value)} · {percentage}% · {commitShareDisplay}
               </span>
             </div>
           </div>
