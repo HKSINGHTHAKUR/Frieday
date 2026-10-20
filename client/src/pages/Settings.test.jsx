@@ -26,6 +26,8 @@ function renderSettings() {
 describe('Settings page (T5.3)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    fakeAuth.connected = true;
+    fakeAuth.status = 'authenticated';
     apiGet.mockImplementation(async (url) => {
       if (url.includes('/api/sync/status')) {
         return {
@@ -89,8 +91,11 @@ describe('Settings page (T5.3)', () => {
     expect(apiPost).toHaveBeenCalledTimes(1);
   });
 
-  it('Disconnect requires confirmation, then calls the endpoint', async () => {
-    fakeAuth.disconnect.mockResolvedValue(undefined);
+  it('Disconnect requires confirmation, then calls the endpoint and keeps the session alive', async () => {
+    fakeAuth.disconnect.mockImplementation(async () => {
+      fakeAuth.connected = false; // disconnect keeps the Frieday session, just severs GitHub
+      return { revoked: true, disconnected: true };
+    });
     const { user } = renderSettings();
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Disconnect GitHub' })).toBeTruthy());
@@ -102,6 +107,13 @@ describe('Settings page (T5.3)', () => {
 
     await user.click(screen.getByRole('button', { name: 'Disconnect' }));
     await waitFor(() => expect(fakeAuth.disconnect).toHaveBeenCalledTimes(1));
+
+    // Disconnect keeps the Frieday session alive: the user stays authenticated,
+    // but GitHub shows as disconnected (Reconnect link appears).
+    expect(fakeAuth.status).toBe('authenticated');
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Reconnect' })).toBeTruthy());
+    // The settings page is still shown (not redirected to /login).
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
   });
 
   it('Cancel on the disconnect modal keeps the session intact', async () => {

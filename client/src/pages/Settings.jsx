@@ -98,8 +98,8 @@ export default function Settings() {
       {confirmingDisconnect && (
         <Modal title="Disconnect GitHub?" onClose={() => (busy ? undefined : setConfirmingDisconnect(false))}>
           <p className="text-sm text-text2">
-            This revokes Frieday&apos;s access to your GitHub account and ends your session. Your synced data
-            is kept until you delete it.
+            This revokes Frieday&apos;s access to your GitHub account. You stay signed in to Frieday; your
+            synced data is kept until you delete it.
           </p>
           <div className="mt-24 flex justify-end gap-8">
             <Button
@@ -210,7 +210,7 @@ function ConnectionCard({ user, connected, lastSyncedAt, onDisconnect }) {
             Disconnect GitHub
           </Button>
           <p className="text-xs text-text3">
-            Revokes the token and ends your session. Data is kept until deleted.
+            Revokes the GitHub token. You stay signed in; data is kept until deleted.
           </p>
         </div>
       </div>

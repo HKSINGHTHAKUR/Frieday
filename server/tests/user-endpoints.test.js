@@ -315,7 +315,7 @@ describe('user endpoints (tasks.md T1.2)', () => {
     assert.equal(me.status, 401, 'a logged-out access token must stop working immediately');
   });
 
-  it('disconnects: revokes the grant, clears the stored token, ends the session', async (t) => {
+  it('disconnects: revokes the grant, clears the stored token, keeps the Frieday session alive', async (t) => {
     if (!dbUp) {
       t.skip('requires MongoDB');
       return;
@@ -328,7 +328,10 @@ describe('user endpoints (tasks.md T1.2)', () => {
       method: 'POST',
       headers: { Cookie: `fd_access=${access}` },
     });
-    assert.equal(res.status, 204);
+    assert.equal(res.status, 200, 'disconnect must return 200 with revocation status');
+    const body = await res.json();
+    assert.equal(body.disconnected, true, 'disconnected flag must be true');
+    assert.equal(body.revoked, true, 'revoked flag must be true when grant revocation succeeds');
 
     assert.equal(fake.revocations.length, revocationsBefore + 1, 'the GitHub grant must be revoked');
     assert.equal(fake.revocations[revocationsBefore].auth, `Bearer ${FAKE_ACCESS_TOKEN}`);
@@ -336,10 +339,151 @@ describe('user endpoints (tasks.md T1.2)', () => {
     const User = require('../src/models/User');
     const doc = await User.findOne({ githubId: USERS.a.id }).select('+githubTokenEnc').lean();
     assert.equal(doc.githubTokenEnc, null, 'the stored token must be cleared');
-    assert.equal(doc.sessionId, null, 'the session must be invalidated');
+    assert.ok(doc.sessionId, 'the Frieday session must NOT be invalidated by disconnect');
 
+    // The user stays signed in — /me still works and reports disconnected.
     const me = await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: `fd_access=${access}` } });
-    assert.equal(me.status, 401, 'the session must be over after disconnect');
+    assert.equal(me.status, 200, 'the session must still be valid after disconnect');
+    const meBody = await me.json();
+    assert.equal(meBody.connected, false, '/me must report disconnected after disconnect');
+  });
+
+  it('sign out does NOT revoke the GitHub grant', async (t) => {
+    if (!dbUp) {
+      t.skip('requires MongoDB');
+      return;
+    }
+    fake.user = USERS.a;
+    const { access } = await login();
+    const revocationsBefore = fake.revocations.length;
+
+    const res = await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST',
+      headers: { Cookie: `fd_access=${access}` },
+    });
+    assert.equal(res.status, 204, 'logout must return 204');
+
+    // No GitHub revocation call must have been made.
+    assert.equal(fake.revocations.length, revocationsBefore, 'logout must not revoke the GitHub grant');
+
+    // Session is over.
+    const me = await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: `fd_access=${access}` } });
+    assert.equal(me.status, 401, 'a logged-out access token must stop working');
+  });
+
+  it('disconnect is idempotent: repeated requests are safe', async (t) => {
+    if (!dbUp) {
+      t.skip('requires MongoDB');
+      return;
+    }
+    fake.user = USERS.a;
+    const { access } = await login();
+
+    // First disconnect revokes.
+    const res1 = await fetch(`${baseUrl}/api/auth/disconnect`, {
+      method: 'POST',
+      headers: { Cookie: `fd_access=${access}` },
+    });
+    assert.equal(res1.status, 200);
+    const body1 = await res1.json();
+    assert.equal(body1.revoked, true);
+    assert.equal(body1.disconnected, true);
+
+    // Second disconnect: token already cleared, so no revocation call.
+    const revocationsBefore = fake.revocations.length;
+    const res2 = await fetch(`${baseUrl}/api/auth/disconnect`, {
+      method: 'POST',
+      headers: { Cookie: `fd_access=${access}` },
+    });
+    assert.equal(res2.status, 200, 'idempotent disconnect must return 200');
+    const body2 = await res2.json();
+    assert.equal(body2.revoked, false, 'second disconnect must report not revoked');
+    assert.equal(body2.disconnected, true, 'second disconnect must report disconnected');
+    assert.equal(
+      fake.revocations.length,
+      revocationsBefore,
+      'no extra revocation call on idempotent disconnect'
+    );
+
+    // Session still alive.
+    const me = await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: `fd_access=${access}` } });
+    assert.equal(me.status, 200);
+  });
+
+  it('revocation failure: local token still cleared, client told the truth', async (t) => {
+    if (!dbUp) {
+      t.skip('requires MongoDB');
+      return;
+    }
+    // Make the fake reject grant revocation.
+    fake.user = USERS.a;
+    const { access } = await login();
+
+    // Override fake.revokeFails check inline: temporarily replace the DELETE handler.
+    const revokeFailServer = http.createServer((req, res) => {
+      if (req.method === 'DELETE' && req.url === '/applications/test-gh-client/grant') {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ message: 'revocation failed' }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise((resolve) => revokeFailServer.listen(0, resolve));
+    const revokeFailUrl = `http://127.0.0.1:${revokeFailServer.address().port}`;
+    process.env.GITHUB_API_BASE = revokeFailUrl;
+
+    const res = await fetch(`${baseUrl}/api/auth/disconnect`, {
+      method: 'POST',
+      headers: { Cookie: `fd_access=${access}` },
+    });
+    assert.equal(res.status, 200, 'disconnect must return 200 even when revocation fails');
+    const body = await res.json();
+    assert.equal(body.revoked, false, 'client must be told revocation did not succeed');
+    assert.equal(body.disconnected, true, 'disconnected must still be true');
+
+    // Local token must still be cleared — the stale token cannot be used.
+    const User = require('../src/models/User');
+    const doc = await User.findOne({ githubId: USERS.a.id }).select('+githubTokenEnc').lean();
+    assert.equal(doc.githubTokenEnc, null, 'token must be cleared even on revocation failure');
+
+    // Sync must refuse to start (no token).
+    const syncRes = await fetch(`${baseUrl}/api/sync`, {
+      method: 'POST',
+      headers: { Cookie: `fd_access=${access}` },
+    });
+    assert.equal(syncRes.status, 401, 'sync must refuse after disconnect even on revocation failure');
+
+    // Restore the original GitHub API base.
+    process.env.GITHUB_API_BASE = fakeUrl;
+    await new Promise((resolve) => revokeFailServer.close(resolve));
+  });
+
+  it('already-disconnected: returns disconnected without revoking again', async (t) => {
+    if (!dbUp) {
+      t.skip('requires MongoDB');
+      return;
+    }
+    fake.user = USERS.a;
+    const { access } = await login();
+
+    // First disconnect.
+    await fetch(`${baseUrl}/api/auth/disconnect`, {
+      method: 'POST',
+      headers: { Cookie: `fd_access=${access}` },
+    });
+    const revocationsBefore = fake.revocations.length;
+
+    // Second disconnect on already-cleared token.
+    const res = await fetch(`${baseUrl}/api/auth/disconnect`, {
+      method: 'POST',
+      headers: { Cookie: `fd_access=${access}` },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.revoked, false, 'already-disconnected must report not revoked');
+    assert.equal(body.disconnected, true);
+    assert.equal(fake.revocations.length, revocationsBefore, 'no extra revocation call');
   });
 
   it('wipes all user data on /data and returns the accurate delete counts', async (t) => {

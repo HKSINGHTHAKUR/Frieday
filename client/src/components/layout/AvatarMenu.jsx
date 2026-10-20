@@ -123,8 +123,8 @@ export default function AvatarMenu() {
       {confirming && (
         <Modal title="Disconnect GitHub?" onClose={() => (busy ? undefined : setConfirming(false))}>
           <p className="text-sm text-text2">
-            This revokes Frieday&apos;s access to your GitHub account and ends your session. Your synced data
-            is kept until you delete it from Settings.
+            This revokes Frieday&apos;s access to your GitHub account. You stay signed in to Frieday; your
+            synced data is kept until you delete it.
           </p>
           <div className="mt-24 flex justify-end gap-8">
             <Button variant="secondary" size="sm" onClick={() => setConfirming(false)} disabled={busy}>

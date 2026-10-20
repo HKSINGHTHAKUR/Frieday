@@ -107,13 +107,23 @@ export function AuthProvider({ children }) {
 
   const disconnect = useCallback(async () => {
     try {
-      await apiPost('/api/auth/disconnect');
+      const result = await apiPost('/api/auth/disconnect');
+      // Disconnect keeps the Frieday session alive — only the GitHub
+      // integration is severed. Refresh /me so the UI reflects the
+      // disconnected state without signing the user out.
+      if (result && result.disconnected) {
+        await loadMe();
+      }
     } catch {
-      // Best-effort: revocation/teardown already ran or the session was gone.
+      // Best-effort: even if the request failed, try to sync state from /me.
+      try {
+        await loadMe();
+      } catch {
+        // If /me also fails, the session may be genuinely lost — surface it.
+        markSessionLost();
+      }
     }
-    markSessionLost();
-    safeNavigate(navigate, '/login', { replace: true });
-  }, [markSessionLost, navigate]);
+  }, [markSessionLost, loadMe]);
 
   const deleteData = useCallback(async () => {
     // Full wipe (DELETE /api/auth/data): server deletes the user document too,

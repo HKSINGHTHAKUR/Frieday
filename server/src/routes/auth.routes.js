@@ -296,9 +296,13 @@ router.post('/logout', requireAuth, async (req, res) => {
 
 /**
  * POST /api/auth/disconnect (architecture.md §5, prd.md Journey D):
- * revoke the GitHub OAuth grant (best-effort — a revocation failure never
- * blocks the disconnect), clear the stored token, and end the session.
- * Synced data is RETAINED until DELETE /api/auth/data. 204.
+ * Revoke the GitHub OAuth grant (best-effort — a revocation failure never
+ * blocks the disconnect), clear the stored token, and KEEP the Frieday
+ * session alive. 200 with `{ revoked, disconnected }`.
+ *
+ * Disconnect ≠ logout: the user stays signed in to Frieday; only the GitHub
+ * integration is severed. Repeated requests are idempotent (already-disconnected
+ * returns `revoked: false, disconnected: true`).
  */
 router.post('/disconnect', requireAuth, async (req, res) => {
   let tokenEnc;
@@ -317,25 +321,30 @@ router.post('/disconnect', requireAuth, async (req, res) => {
     });
   }
 
+  let revoked = false;
   if (tokenEnc) {
     try {
       await revokeGrant(decryptToken(tokenEnc));
+      revoked = true;
       req.log.info({ reqId: req.id, msg: 'github grant revoked' });
     } catch (err) {
-      // Best-effort by contract: log, never surface to the client.
+      // Revocation failed: never claim success. Log a sanitized diagnostic,
+      // still disable the integration locally so the stale token can never be
+      // used again, and return an honest status to the client.
       req.log.warn({
         reqId: req.id,
         code: err.code === 'UNAUTHENTICATED' ? 'TOKEN_DECRYPTION_FAILED' : 'GITHUB_UNREACHABLE',
-        message: 'github grant revocation skipped',
+        message: 'github grant revocation failed; local token cleared',
+        retryable: err.retryable ?? false,
       });
     }
   }
 
+  // Always clear the stored token (idempotent: a null token is a no-op).
+  // NEVER clear sessionId / refreshTokenHash / cookies — disconnect keeps the
+  // Frieday session alive; only the GitHub integration is severed.
   try {
-    await User.updateOne(
-      { githubId: req.user.githubId },
-      { $set: { githubTokenEnc: null, sessionId: null, refreshTokenHash: null } }
-    ).exec();
+    await User.updateOne({ githubId: req.user.githubId }, { $set: { githubTokenEnc: null } }).exec();
   } catch {
     // err.message may embed driver/connection details — safe metadata only.
     req.log.warn({ reqId: req.id, code: 'DB_UNAVAILABLE', operation: 'disconnect-clear' });
@@ -348,9 +357,8 @@ router.post('/disconnect', requireAuth, async (req, res) => {
     });
   }
 
-  req.log.info({ reqId: req.id, msg: 'user disconnected' });
-  setSessionCookies(res, null, null, true);
-  res.status(204).end();
+  req.log.info({ reqId: req.id, msg: 'user disconnected', revoked });
+  res.status(200).json({ revoked, disconnected: true });
 });
 
 /**

@@ -17,7 +17,7 @@ export const fakeAuth = {
   connected: true,
   lastSyncedAt: '2026-10-01T00:00:00Z',
   logout: vi.fn().mockResolvedValue(undefined),
-  disconnect: vi.fn().mockResolvedValue(undefined),
+  disconnect: vi.fn().mockResolvedValue({ revoked: true, disconnected: true }),
   deleteData: vi.fn().mockResolvedValue(undefined),
   loadMe: vi.fn().mockResolvedValue(undefined),
   refreshSession: vi.fn().mockResolvedValue(true),

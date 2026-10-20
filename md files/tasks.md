@@ -50,9 +50,9 @@
   - Testing: integration tests with mocked token endpoint (no live GitHub in CI); state-CSRF test.
 
 - [x] **T1.2 Session + token storage + user endpoints**
-  - Subtasks: `services/auth/crypto.service.js` (AES-256-GCM) + `session.service.js` (15m access / 7d refresh rotation, httpOnly cookies) + `middleware/requireAuth.js`; `User` model (encrypted token, scopes); `GET /api/auth/me`, `POST /api/auth/logout`, `POST /api/auth/disconnect` (revoke best-effort), `DELETE /api/auth/data` (full wipe + counts).
-  - Expected output: login persists across refresh; logout/disconnect/delete behave per `prd.md` Journeys A/D.
-  - Acceptance: `prd.md` FR-2, FR-11; no token/JWT in localStorage (code review + test); cross-user data access impossible (no data yet â€” auth tests only); delete returns accurate counts on seeded data.
+  - Subtasks: `services/auth/crypto.service.js` (AES-256-GCM) + `session.service.js` (15m access / 7d refresh rotation, httpOnly cookies) + `middleware/requireAuth.js`; `User` model (encrypted token, scopes); `GET /api/auth/me`, `POST /api/auth/logout`, `POST /api/auth/disconnect` (revoke best-effort, keeps Frieday session alive), `DELETE /api/auth/data` (full wipe + counts).
+  - Expected output: login persists across refresh; logout/disconnect/delete behave per `prd.md` Journeys A/D. Disconnect revokes GitHub grant (best-effort), clears stored token, but does NOT sign the user out of Frieday; logout does NOT revoke GitHub.
+  - Acceptance: `prd.md` FR-2, FR-11; no token/JWT in localStorage (code review + test); cross-user data access impossible (no data yet â€” auth tests only); delete returns accurate counts on seeded data; disconnect is idempotent and honest about revocation failures.
   - Testing: auth tests (happy/401/expired-refresh rotation), crypto round-trip + wrong-key failure, disconnect/delete integration tests.
 
 - [x] **T1.3 Auth UI + session wiring**

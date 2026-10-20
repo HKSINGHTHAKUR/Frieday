@@ -403,7 +403,7 @@ describe('GET /api/auth/github + /callback (tasks.md T1.1)', () => {
     assert.equal(refreshRes.status, 401);
   });
 
-  it('POST /api/auth/disconnect clears token and returns 204', async (t) => {
+  it('POST /api/auth/disconnect clears GitHub token, keeps Frieday session alive', async (t) => {
     if (!dbUp) {
       t.skip('disconnect requires DB-backed session');
       return;
@@ -418,20 +418,30 @@ describe('GET /api/auth/github + /callback (tasks.md T1.1)', () => {
     const accessCookie = cookieFull(loginRes, 'fd_access');
     assert.ok(accessCookie, 'fd_access cookie must be set');
 
-    // Disconnect
+    // Disconnect returns 200 with revocation status (not 204)
     const disconnectRes = await fetch(`${baseUrl}/api/auth/disconnect`, {
       method: 'POST',
       headers: { Cookie: accessCookie },
     });
-    assert.equal(disconnectRes.status, 204);
+    assert.equal(disconnectRes.status, 200, 'disconnect must return 200 with revocation status');
+    const body = await disconnectRes.json();
+    assert.equal(body.disconnected, true, 'disconnected flag must be true');
 
-    // Verify session is cleared - refresh should fail
+    // The GitHub token is cleared: /me reports disconnected.
+    const me = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { Cookie: `fd_access=${accessCookie.split(';')[0].replace('fd_access=', '')}` },
+    });
+    assert.equal(me.status, 200, '/me must still work after disconnect');
+    const meBody = await me.json();
+    assert.equal(meBody.connected, false, '/me must report disconnected');
+
+    // The Frieday session is STILL alive: refresh still works.
     const refreshCookie = cookieFull(loginRes, 'fd_refresh');
     const refreshRes = await fetch(`${baseUrl}/api/auth/refresh`, {
       method: 'POST',
-      headers: { Cookie: `fd_refresh=${refreshCookie.split(';')[0]}` },
+      headers: { Cookie: refreshCookie.split(';')[0] },
     });
-    assert.equal(refreshRes.status, 401);
+    assert.equal(refreshRes.status, 200, 'refresh must still work after disconnect — session is kept alive');
   });
 
   it('DELETE /api/auth/data removes all user data and returns counts', async (t) => {
