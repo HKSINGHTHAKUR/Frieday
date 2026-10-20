@@ -406,14 +406,87 @@ This section summarizes the documented state. **No automated backup is performed
 ### Logical backup/restore procedure (the Atlas M0 recovery path)
 
 Because M0 has no automatic snapshots, the supported recovery method is a **logical
-export/import** (`mongodump`/`mongorestore`, or `mongoexport`/`mongoimport` per collection).
-The Node driver equivalent (collection → JSON → collection) was **drill-verified locally**
-on 2026-10-20 against a disposable `frieday_backup_drill` database with synthetic data:
-seed → export → simulate loss (`dropDatabase`) → restore → verify. Counts, per-document
-integrity checksums, and the commit→repository referential invariant all matched after
-restore; the drill database was dropped on completion. Exit code 0.
+export/import**. Two tools are available:
 
-**Owner backup command (run from a machine with Atlas access; never prints the URI):**
+1. **`scripts/backup-restore.js`** — Node.js logical backup/restore using the
+   MongoDB driver (no `mongodump`/`mongorestore` required). Includes safety
+   guards: never prints credentials, refuses Atlas `mongodb+srv://` URIs,
+   refuses production-looking database names, refuses restore-to-same-DB, and
+   requires explicit target databases.
+
+2. **`mongodump`/`mongorestore`** — Atlas database tools, run from a machine
+   with Atlas access. Owner action only.
+
+#### Using `scripts/backup-restore.js` (local drill, no production access)
+
+**Prerequisites:** Node.js 20+, a MongoDB URI for a disposable database
+(never production). The script works against any MongoDB instance reachable
+from the network.
+
+**Commands:**
+
+```powershell
+# 1. Backup: export all known collections from source DB to JSON
+node scripts/backup-restore.js backup "<MONGO_URI>" ./backup-output [dbName]
+
+# 2. Restore: import JSON backups into a disposable target database
+node scripts/backup-restore.js restore "<MONGO_URI>" ./backup-output <targetDb>
+
+# 3. Verify: compare collection counts and indexes between two databases
+node scripts/backup-restore.js verify "<srcUri>" "<tgtUri>" [srcDb] <tgtDb>
+
+# 4. Drill: end-to-end backup → restore → verify → cleanup temp target
+node scripts/backup-restore.js drill "<MONGO_URI>" <tempDb> [outDir]
+```
+
+**Safety guards (blocking, exit code 2):**
+
+| Guard                  | What it prevents                                                         |
+| ---------------------- | ------------------------------------------------------------------------ |
+| Credential redaction   | URI passwords masked in all output (`:***@`)                             |
+| No Atlas URIs          | Refuses `mongodb+srv://` — use mongodump/mongorestore from Atlas console |
+| No production DB names | Refuses `frieday_prod`, `production`, `prod` in source or target         |
+| No restore-to-same-DB  | Target must differ from source                                           |
+| Required target DB     | Restore/verify require an explicit target database name                  |
+| Exit codes             | 0 = success, 1 = verification failure, 2 = blocked/misuse                |
+
+**Example local drill (synthetic data, disposable DB):**
+
+```powershell
+# Seed a disposable DB with synthetic data (your own seed script), then:
+node scripts/backup-restore.js drill "mongodb://127.0.0.1:27017/frieday_test" frieday_drill_temp ./drill-backup
+# Expected output: "Drill complete: backup → restore → verify → cleanup all PASS."
+```
+
+**Expected healthy output (backup phase):**
+
+```
+Connected to source database: frieday_test
+  backed up users: 2 documents
+  backed up repositories: 3 documents
+  backed up commits: 5 documents
+...
+Backup complete: 10 collections, 47 documents → ./backup-output
+```
+
+**Expected healthy output (drill phase):**
+
+```
+=== PHASE 1: Backup ===
+...
+=== PHASE 2: Restore to temp database ===
+...
+=== PHASE 3: Verify ===
+...
+Verification: PASS
+=== PHASE 4: Cleanup temp database ===
+  Temp database "frieday_drill_temp" dropped.
+Drill complete: backup → restore → verify → cleanup all PASS.
+```
+
+#### Owner backup command (mongodump, Atlas access required)
+
+Run from a machine with Atlas access; never print the URI:
 
 ```powershell
 # Requires mongodb-database-tools installed (mongodump/mongorestore).
@@ -421,19 +494,22 @@ restore; the drill database was dropped on completion. Exit code 0.
 mongodump --uri="$env:MONGO_URI" --out="backup-$(Get-Date -Format yyyyMMdd)"
 ```
 
-**Owner restore command (restore to a NEW database/cluster, never over production):**
+#### Owner restore command (mongorestore, NEW cluster only)
+
+Restore to a **new** database/cluster, never over production:
 
 ```powershell
 mongorestore --uri="$env:MONGO_URI" --nsFrom="frieday.*" --nsTo="frieday_restored.*" "backup-YYYYMMDD/frieday"
 # Verify the restored namespace before repointing MONGO_URI in Render.
 ```
 
-**Scope limitation — NOT VERIFIED (OWNER ACTION REQUIRED):** the drill proves the
-_logical_ export/import round-trips correctly. It does **not** prove an Atlas-console
-snapshot restore, nor connectivity/permissions against the production cluster, because
-that requires owner Atlas credentials. A production restore must follow §8 (restore to a
-**new** cluster first, verify with `node scripts/smoke.js <staging-url>`, then repoint
-`MONGO_URI`). Do not restore over the live cluster.
+**Scope limitation — NOT VERIFIED (OWNER ACTION REQUIRED):** the local drill
+proves the logical export/import round-trips correctly. It does **not** prove
+an Atlas-console snapshot restore, nor connectivity/permissions against the
+production cluster, because that requires owner Atlas credentials. A production
+restore must follow §8 (restore to a **new** cluster first, verify with
+`node scripts/smoke.js <staging-url>`, then repoint `MONGO_URI`). Do not
+restore over the live cluster.
 
 ---
 

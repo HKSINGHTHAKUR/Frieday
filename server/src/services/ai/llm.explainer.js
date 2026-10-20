@@ -207,4 +207,11 @@ function createLlmExplainer({ config, fetchImpl = fetch, timeoutMs = DEFAULT_TIM
   };
 }
 
-module.exports = { AiError, createLlmExplainer, buildSystemPrompt, buildUserPrompt, PROMPT_VERSION };
+module.exports = {
+  AiError,
+  createLlmExplainer,
+  buildSystemPrompt,
+  buildUserPrompt,
+  providerConfig,
+  PROMPT_VERSION,
+};

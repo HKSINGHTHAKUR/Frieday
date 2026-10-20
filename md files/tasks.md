@@ -252,9 +252,17 @@
   - Expected output: operator can diagnose and recover from each incident using documented safe steps without requiring owner authorization for most P1/P2 issues.
   - Acceptance: all 8 incident scenarios documented with: symptom, safe diagnostic steps, likely cause, recovery action, verification; owner-required actions explicitly marked.
   - **Evidence (2026-10-20):** `docs/RUNBOOK.md` — 14 sections, covers all 8 required incident scenarios plus backup/restore, escalation matrix, known gaps. `node scripts/smoke.js https://frieday.onrender.com` 6/6 PASS confirms production is in the state documented in the runbook.
-  - **Backup/restore drill (2026-10-20):** logical export/import recovery path drill-verified locally against a disposable `frieday_backup_drill` DB with synthetic data (seed → export → `dropDatabase` → restore → verify); counts, per-document checksums, and the commit→repository referential invariant all matched after restore, exit 0. **Atlas M0 console snapshot restore remains NOT VERIFIED — OWNER ACTION REQUIRED** (needs owner Atlas credentials; see `docs/RUNBOOK.md §12`). The local drill does not prove the production snapshot path.
+  - **Backup/restore drill (2026-10-20):** logical export/import recovery path drill-verified locally against a disposable `frieday_backup_drill` DB with synthetic data (seed → export → `dropDatabase` → restore → verify); counts, per-document checksums, and the commit→repository referential invariant all matched after restore, exit 0. **`scripts/backup-restore.js`** added with safety guards: never prints credentials, refuses Atlas `mongodb+srv://` URIs, refuses production-looking database names, refuses restore-to-same-DB, requires explicit target databases. Safety-guard tests in `server/tests/backup-restore.safety.test.js` (18 pass / 0 fail). Integration test in `server/tests/backup-restore.integration.test.js` (skips when MongoDB unavailable). **Atlas M0 console snapshot restore remains NOT VERIFIED — OWNER ACTION REQUIRED** (needs owner Atlas credentials; see `docs/RUNBOOK.md §12`). The local drill does not prove the production snapshot path.
 
 **Phase 9 Definition of Done:** production deployment live + smoke-verified; RUNBOOK.md covers all required incident scenarios; `prd.md §23` criteria all PASS on live production; no Phase 10 work started.
+
+---
+
+**Item 1 — MongoDB Atlas backup/restore:** `scripts/backup-restore.js` implemented with safety guards (credential redaction, Atlas URI refusal, production DB name refusal, target≠source enforcement). Safety-guard tests: 18 pass / 0 fail. Integration test skips when MongoDB unavailable. **Atlas production snapshot restore: owner-blocked** (needs owner Atlas credentials).
+
+**Item 2 — Live AI provider:** `AI_API_KEY` placeholder added to `.env.example`. Provider contract + configuration validation tests added (`server/tests/ai.provider.test.js`). Full AI layer: 47 pass / 0 fail (existing) + new tests pass. `AI_ENABLED=false` by default — production provider **not enabled** (owner credentials/approval required).
+
+**Item 3 — React Router security (SEC-1):** Installed react-router 6.30.6. No safe patch-level fix in v6 (fix is breaking v7 migration). All application navigation targets are hardcoded literals — advisories (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg) assessed as **not exploitable**. Defense-in-depth: `client/src/lib/safeNavigate.js` added with open-redirect protection (blocks backslash UNC, protocol-relative URLs, absolute URLs, unsafe schemes). Regression tests: 40 pass / 0 fail. AuthStore.jsx updated to use safeNavigate. **SEC-1 remains an accepted time-bounded exception, reassessment 2026-11-16.**
 
 
 

@@ -20,6 +20,7 @@
 import { createContext, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiGet, apiPost, apiDelete, setSessionRefresher } from '../lib/apiClient.js';
+import { safeNavigate } from '../lib/safeNavigate.js';
 
 export const AuthContext = createContext(null);
 
@@ -101,7 +102,7 @@ export function AuthProvider({ children }) {
       // The session is already gone server-side; the clear below still applies.
     }
     markSessionLost();
-    navigate('/login', { replace: true });
+    safeNavigate(navigate, '/login', { replace: true });
   }, [markSessionLost, navigate]);
 
   const disconnect = useCallback(async () => {
@@ -111,7 +112,7 @@ export function AuthProvider({ children }) {
       // Best-effort: revocation/teardown already ran or the session was gone.
     }
     markSessionLost();
-    navigate('/login', { replace: true });
+    safeNavigate(navigate, '/login', { replace: true });
   }, [markSessionLost, navigate]);
 
   const deleteData = useCallback(async () => {
@@ -124,7 +125,7 @@ export function AuthProvider({ children }) {
       // cleared by the server response path. Never block the route to /login.
     }
     markSessionLost();
-    navigate('/login', { replace: true });
+    safeNavigate(navigate, '/login', { replace: true });
   }, [markSessionLost, navigate]);
 
   const value = useMemo(
