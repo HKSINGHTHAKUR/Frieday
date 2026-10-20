@@ -108,7 +108,14 @@ function providerConfig(config) {
   if (!model || !baseUrl || !apiKey) {
     return null;
   }
-  return { model, baseUrl, apiKey };
+  return {
+    model,
+    baseUrl,
+    apiKey,
+    // NVIDIA NIM ChatRequest schema has additionalProperties: false and does
+    // not document response_format; omit it for NVIDIA to avoid rejection.
+    supportsResponseFormat: !isNvidia,
+  };
 }
 
 /**
@@ -191,8 +198,8 @@ function backoffMs(attemptIndex) {
 /**
  * Extract sanitized diagnostic info from a provider error response.
  * Never returns the full body, authorization headers, or credentials.
- * Google format: { error: { code, message, status } }
- * OpenAI format: { error: { message, type, code } }
+ * Google/OpenAI format: { error: { code/status, message } }
+ * NVIDIA format: { status, detail, type } at root level
  * @param {number} statusCode HTTP status code
  * @param {unknown} body parsed response body (may be null)
  * @returns {{ statusCode: number, providerCode?: string, message?: string }}
@@ -206,13 +213,19 @@ function sanitizeProviderError(statusCode, body) {
     Array.isArray(body) && body.length > 0 && body[0] && typeof body[0] === 'object' ? body[0] : body;
 
   const err = root.error;
+  // Google/OpenAI: fields nested under 'error'
   if (err && typeof err === 'object') {
     if (err.code !== undefined) result.providerCode = String(err.code);
     else if (err.status !== undefined) result.providerCode = String(err.status);
-
-    const msg = typeof err.message === 'string' ? err.message : undefined;
+    const msg =
+      typeof err.message === 'string' ? err.message : typeof err.detail === 'string' ? err.detail : undefined;
     if (msg) result.message = msg.slice(0, 200);
+    return result;
   }
+  // NVIDIA: fields at root level (status, detail, type)
+  if (root.status !== undefined) result.providerCode = String(root.status);
+  if (typeof root.detail === 'string') result.message = root.detail.slice(0, 200);
+  else if (typeof root.title === 'string') result.message = root.title.slice(0, 200);
   return result;
 }
 
@@ -245,7 +258,7 @@ async function callProvider(llm, messages) {
         model: llm.model,
         messages,
         temperature: 0,
-        response_format: { type: 'json_object' },
+        ...(llm.supportsResponseFormat ? { response_format: { type: 'json_object' } } : {}),
       }),
       signal: controller.signal,
     });

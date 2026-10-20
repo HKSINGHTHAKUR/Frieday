@@ -79,7 +79,7 @@ describe('NVIDIA NIM provider via OpenAI-compatible interface (T6.2 migration)',
     const body = JSON.parse(options.body);
     assert.equal(body.model, 'meta/llama-3.1-8b-instruct');
     assert.equal(body.temperature, 0);
-    assert.deepEqual(body.response_format, { type: 'json_object' });
+    assert.ok(!('response_format' in body), 'response_format must not be sent to NVIDIA');
     assert.equal(body.messages.length, 2);
     assert.equal(body.messages[0].role, 'system');
     assert.match(
@@ -265,6 +265,72 @@ describe('NVIDIA NIM provider error diagnostics (T6.2 migration)', () => {
     assert.equal(result.fallbackDetails.providerCode, '404');
     assert.ok(result.fallbackDetails.message.includes('not available'));
     assert.ok(!JSON.stringify(result).includes(NVIDIA_CONFIG.NVIDIA_API_KEY));
+  });
+
+  it('410 Gone (NVIDIA detail format) → PROVIDER_REJECTED, no retry, sanitized diagnostic', async () => {
+    const { calls, impl } = recordingFetch([
+      {
+        response: errorResponse(410, {
+          type: 'urn:nvcf-worker-service:problem-details:resource-gone',
+          title: 'Resource Gone',
+          status: 410,
+          detail: 'The model meta/llama-3.1-8b-instruct is no longer available at this endpoint.',
+          instance: '/v2/nvcf/pexec/functions/abc123',
+          requestId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+        }),
+      },
+    ]);
+    const explainer = createAiExplainer({ config: NVIDIA_CONFIG, fetchImpl: impl });
+    const result = await explainer.explain(INPUT);
+
+    // 410 is not transient → no retry, exactly 1 call
+    assert.equal(calls.length, 1, 'HTTP 410 must not be retried');
+    assert.equal(result.aiLabel, false);
+    assert.equal(result.fallbackReason, 'PROVIDER_REJECTED');
+    assert.equal(result.fallbackStatus, 410);
+    assert.equal(result.fallbackDetails.providerCode, '410');
+    assert.ok(
+      result.fallbackDetails.message.includes('no longer available'),
+      'NVIDIA detail field must be extracted'
+    );
+    assert.ok(!JSON.stringify(result).includes(NVIDIA_CONFIG.NVIDIA_API_KEY), 'API key must not leak');
+  });
+
+  it('410 with empty body → PROVIDER_REJECTED with status only, no crash', async () => {
+    const { calls, impl } = recordingFetch([
+      {
+        response: { ok: false, status: 410, headers: {}, json: async () => null },
+      },
+    ]);
+    const explainer = createAiExplainer({ config: NVIDIA_CONFIG, fetchImpl: impl });
+    const result = await explainer.explain(INPUT);
+
+    assert.equal(calls.length, 1, 'no retry on 410');
+    assert.equal(result.aiLabel, false);
+    assert.equal(result.fallbackReason, 'PROVIDER_REJECTED');
+    assert.equal(result.fallbackStatus, 410);
+    assert.equal(result.fallbackDetails.providerCode, undefined);
+    assert.equal(result.fallbackDetails.message, undefined);
+    assert.ok(!JSON.stringify(result).includes(NVIDIA_CONFIG.NVIDIA_API_KEY));
+  });
+
+  it('request body sent to NVIDIA does NOT include response_format', async () => {
+    const { calls, impl } = recordingFetch([
+      { response: nvidiaResponse({ paraphrase: 'Commits rose 12%.' }) },
+    ]);
+    const explainer = createAiExplainer({ config: NVIDIA_CONFIG, fetchImpl: impl });
+    const result = await explainer.explain(INPUT);
+
+    assert.equal(result.aiLabel, true);
+    assert.equal(calls.length, 1);
+    const body = JSON.parse(calls[0].options.body);
+    assert.ok(
+      !('response_format' in body),
+      'response_format must not be sent to NVIDIA (additionalProperties: false)'
+    );
+    assert.equal(body.model, 'meta/llama-3.1-8b-instruct');
+    assert.ok(Array.isArray(body.messages));
+    assert.ok(body.messages.length > 0);
   });
 
   it('503 transient → PROVIDER_TRANSIENT with retry, then succeeds', async () => {
