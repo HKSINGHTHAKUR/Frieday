@@ -27,10 +27,12 @@ export default function InsightCard({ insight, children }) {
             .map(([key, value]) => (
               <span
                 key={key}
-                className="inline-flex items-center gap-4 rounded-md bg-surface2 px-8 py-4 text-sm text-text2"
+                className="inline-flex max-w-full items-center gap-4 rounded-md bg-surface2 px-8 py-4 text-sm text-text2"
               >
-                <span className="text-text">{key}:</span>
-                <span className="mono font-medium text-text">{String(value)}</span>
+                <span className="shrink-0 text-text">{key}:</span>
+                {/* Metric values can be long (repo names, ids) — let them wrap
+                    instead of forcing the card wider (design_system.md §27). */}
+                <span className="mono min-w-0 break-all font-medium text-text">{String(value)}</span>
               </span>
             ))}
         </div>

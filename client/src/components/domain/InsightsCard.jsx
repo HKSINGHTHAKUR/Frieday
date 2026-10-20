@@ -40,10 +40,13 @@ export default function InsightsCard({ insights = [] }) {
                       .map(([k, v]) => (
                         <span
                           key={k}
-                          className="inline-flex items-center gap-4 px-8 py-4 rounded-md bg-surface2 text-sm text-text2"
+                          className="inline-flex max-w-full items-center gap-4 rounded-md bg-surface2 px-8 py-4 text-sm text-text2"
                         >
-                          <span className="text-text3">{k}:</span>
-                          <span className="font-mono font-medium text-text">{v}</span>
+                          <span className="shrink-0 text-text3">{k}:</span>
+                          {/* Metric values can be long (repo names, ids) — let
+                              them wrap instead of forcing the card wider
+                              (design_system.md §27: no horizontal overflow). */}
+                          <span className="min-w-0 break-all font-mono font-medium text-text">{v}</span>
                         </span>
                       ))}
                   </div>
