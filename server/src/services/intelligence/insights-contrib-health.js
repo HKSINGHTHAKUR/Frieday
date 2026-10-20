@@ -67,10 +67,14 @@ function evaluateProjectHealth({ repoHealth, previousRepoHealth }) {
       ['active', 'steady'].includes(previous.health) &&
       ['quiet', 'stalled'].includes(current.health)
     ) {
+      const daysText =
+        typeof current.daysSinceActivity === 'number' && current.daysSinceActivity >= 0
+          ? ` (${current.daysSinceActivity} days since activity)`
+          : '';
       insights.push({
         templateId: 'project_health',
         title: 'Project Health',
-        text: `${current.repoName} went quiet — moved from ${previous.health} to ${current.health} (${current.daysSinceActivity} days since activity).`,
+        text: `${current.repoName} went quiet — moved from ${previous.health} to ${current.health}${daysText}.`,
         metrics: {
           repoId: current.repoId,
           repoName: current.repoName,

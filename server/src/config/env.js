@@ -46,6 +46,12 @@ const envSchema = z.object({
   AI_PROVIDER: z.string().default(''),
   AI_MODEL: z.string().default(''),
   AI_BASE_URL: z.string().default(''),
+  // NVIDIA NIM provider (T6.2 replacement for Gemini). Configure via:
+  // AI_PROVIDER=nvidia, NVIDIA_API_KEY=<key>, NVIDIA_MODEL=<model>,
+  // NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
+  NVIDIA_API_KEY: z.string().default(''),
+  NVIDIA_MODEL: z.string().default(''),
+  NVIDIA_BASE_URL: z.string().default('https://integrate.api.nvidia.com/v1'),
   // prd.md §19: "Model name, base URL, API key via env." Secret: never
   // logged, returned, or embedded in errors (rules.md §10).
   AI_API_KEY: z.string().default(''),

@@ -20,6 +20,7 @@ const Insight = require('../models/Insight');
 const { getLastRecomputeAt, isCacheValid } = require('../services/intelligence/composer-core');
 const { recomputeIntelligence } = require('../services/intelligence/composer');
 const { createAiExplainer, buildInsightInput } = require('../services/ai/explainer.interface');
+const { providerConfig } = require('../services/ai/llm.explainer');
 
 function sendError(req, res, err) {
   const code = err && typeof err.code === 'string' && STATUS_BY_CODE[err.code] ? err.code : 'INTERNAL';
@@ -125,9 +126,8 @@ async function insightsHandler(deps, req, res) {
 async function explainHandler(deps, req, res) {
   const config = deps.config ?? getEnv();
   const aiEnabled = Boolean(config.AI_ENABLED);
-  const providerConfigured = Boolean(
-    config.AI_PROVIDER && config.AI_MODEL && config.AI_BASE_URL && config.AI_API_KEY
-  );
+  const providerResolved = providerConfig(config);
+  const providerConfigured = Boolean(providerResolved);
   if (!aiEnabled) {
     req.log.warn({ reqId: req.id, msg: 'ai explain disabled', aiEnabled: false, providerConfigured });
     return res.status(501).json({
@@ -185,8 +185,8 @@ async function explainHandler(deps, req, res) {
         reason: result.fallbackReason,
         status: result.fallbackStatus,
         details: result.fallbackDetails,
-        model: config.AI_MODEL,
-        endpoint: config.AI_BASE_URL ? `${new URL(config.AI_BASE_URL).pathname}/chat/completions` : null,
+        model: providerResolved?.model ?? null,
+        endpoint: providerResolved ? `${new URL(providerResolved.baseUrl).pathname}/chat/completions` : null,
         aiEnabled,
         providerConfigured,
       });
@@ -203,8 +203,8 @@ async function explainHandler(deps, req, res) {
       code: err && typeof err.code === 'string' ? err.code : 'UNKNOWN',
       status: err && typeof err.status === 'number' ? err.status : null,
       details: err && typeof err.details === 'object' ? err.details : null,
-      model: config.AI_MODEL,
-      endpoint: config.AI_BASE_URL ? `${new URL(config.AI_BASE_URL).pathname}/chat/completions` : null,
+      model: providerResolved?.model ?? null,
+      endpoint: providerResolved ? `${new URL(providerResolved.baseUrl).pathname}/chat/completions` : null,
       aiEnabled,
       providerConfigured,
     });
