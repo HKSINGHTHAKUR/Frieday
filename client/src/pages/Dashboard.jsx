@@ -248,7 +248,7 @@ export default function Dashboard() {
             <div className="space-y-12">
               <div className="flex items-baseline gap-8">
                 <span className="metric text-4xl font-bold text-text mono">{activeDays}</span>
-                <span className="text-sm text-text2 mt-4">of last {rangeLabel}</span>
+                <span className="text-sm text-text2 mt-4">of {rangeLabel}</span>
               </div>
               <div className="flex items-center gap-16 text-sm text-text2">
                 <span>

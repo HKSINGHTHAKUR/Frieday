@@ -61,10 +61,13 @@ describe('index.js startup diagnostics', () => {
   it('logs the zod validation reason for invalid TOKEN_ENC_KEY', () => {
     const envModule = require('../src/config/env');
     envModule.getEnv = () => {
-      throw new Error("Invalid env: TOKEN_ENC_KEY — TOKEN_ENC_KEY must be 64 hex characters (32 bytes)");
+      throw new Error('Invalid env: TOKEN_ENC_KEY — TOKEN_ENC_KEY must be 64 hex characters (32 bytes)');
     };
     require('../src/index');
-    assert.equal(loggerCalls[0].message, "Invalid env: TOKEN_ENC_KEY — TOKEN_ENC_KEY must be 64 hex characters (32 bytes)");
+    assert.equal(
+      loggerCalls[0].message,
+      'Invalid env: TOKEN_ENC_KEY — TOKEN_ENC_KEY must be 64 hex characters (32 bytes)'
+    );
     assert.ok(loggerCalls[0].message.includes('TOKEN_ENC_KEY'));
     assert.ok(!/^[0-9a-f]{64}$/.test(loggerCalls[0].message));
   });

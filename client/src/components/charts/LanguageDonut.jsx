@@ -14,11 +14,11 @@ function CustomTooltip({ active, payload }) {
   if (!active || !payload || !payload.length) return null;
 
   const entry = payload[0];
-  const { name, value, payload: entryPayload } = entry;
-  const total = entryPayload?.total || 0;
+  const { name, value } = entry;
+  const total = entry.payload?.total || 0;
   const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
   const commitShare =
-    entryPayload?.commitShare !== undefined ? `${entryPayload.commitShare.toFixed(1)}%` : '—';
+    entry.payload?.commitShare !== undefined ? `${entry.payload.commitShare.toFixed(1)}%` : '—';
 
   const formatBytes = (bytes) => {
     if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -32,7 +32,7 @@ function CustomTooltip({ active, payload }) {
       <div className="space-y-2 text-sm">
         <div className="flex justify-between">
           <span className="text-text3">Weighted bytes</span>
-          <span className="font-mono font-medium text-text">{formatBytes(entryPayload?.bytes || 0)}</span>
+          <span className="font-mono font-medium text-text">{formatBytes(value)}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-text3">Share of total</span>
@@ -58,10 +58,9 @@ function CustomLegend({ payload }) {
     <div className="flex flex-wrap gap-16 mt-8">
       {payload.map((entry, index) => {
         const color = COLORS[index % COLORS.length];
-        const { name, value, payload: entryPayload } = entry;
+        const { name, value, commitShare } = entry;
         const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
-        const commitShare =
-          entryPayload?.commitShare !== undefined ? `${entryPayload.commitShare.toFixed(1)}%` : '—';
+        const commitShareDisplay = commitShare !== undefined ? `${commitShare.toFixed(1)}%` : '—';
         const formatBytes = (bytes) => {
           if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
           if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -74,8 +73,8 @@ function CustomLegend({ payload }) {
               <span className="text-sm text-text truncate" title={name}>
                 {name}
               </span>
-              <span className="text-xs text-text3 mono">
-                {formatBytes(entryPayload?.bytes || value)} · {percentage}% · commit share {commitShare}
+              <span className="text-xs text-text mono">
+                {formatBytes(value)} · {percentage}% · commit share {commitShareDisplay}
               </span>
             </div>
           </div>
@@ -107,6 +106,7 @@ const LanguageDonut = memo(function LanguageDonut({ data }) {
     name,
     value,
     total: data.totalBytes || Object.values(data.weightedBytes).reduce((a, b) => a + b, 0),
+    commitShare: data.commitShare?.[name],
   }));
 
   // Limit to top 5 + Other

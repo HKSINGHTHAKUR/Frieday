@@ -27,13 +27,13 @@ export default function InsightCard({ insight, children }) {
               key={key}
               className="inline-flex items-center gap-4 rounded-md bg-surface2 px-8 py-4 text-sm text-text2"
             >
-              <span className="text-text3">{key}:</span>
+              <span className="text-text">{key}:</span>
               <span className="mono font-medium text-text">{String(value)}</span>
             </span>
           ))}
         </div>
       )}
-      <p className="text-xs text-text3">
+      <p className="text-xs text-text2">
         Deterministic · computed from your synced data{range ? ` · ${range}` : ''}
         {generatedAt ? ` · generated ${formatAgo(generatedAt)}` : ''}
       </p>

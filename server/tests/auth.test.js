@@ -363,6 +363,135 @@ describe('GET /api/auth/github + /callback (tasks.md T1.1)', () => {
     assert.equal(resB.status, 302);
     assert.equal(fake.tokenCalls, callsBefore + 1, 'tab 2 callback exchanges the code once');
   });
+
+  it('POST /api/auth/logout clears session cookies and returns 204', async (t) => {
+    if (!dbUp) {
+      t.skip('logout requires DB-backed session');
+      return;
+    }
+    // Login first to get session cookies
+    const { state, cookieValue } = await startFlow();
+    const loginRes = await fetch(`${baseUrl}/api/auth/github/callback?code=test-auth-code&state=${state}`, {
+      redirect: 'manual',
+      headers: { Cookie: `fd_oauth_state=${cookieValue}` },
+    });
+    assert.equal(loginRes.status, 302);
+    const accessCookie = cookieFull(loginRes, 'fd_access');
+    const refreshCookie = cookieFull(loginRes, 'fd_refresh');
+    assert.ok(accessCookie, 'fd_access cookie must be set');
+    assert.ok(refreshCookie, 'fd_refresh cookie must be set');
+
+    // Logout
+    const logoutRes = await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST',
+      headers: { Cookie: `${accessCookie}; ${refreshCookie}` },
+    });
+    assert.equal(logoutRes.status, 204);
+
+    // Verify cookies are cleared
+    const setCookies = logoutRes.headers.getSetCookie() || [];
+    const accessCleared = setCookies.some((c) => c.startsWith('fd_access='));
+    const refreshCleared = setCookies.some((c) => c.startsWith('fd_refresh='));
+    assert.ok(accessCleared, 'fd_access cookie should be cleared on logout');
+    assert.ok(refreshCleared, 'fd_refresh cookie should be cleared on logout');
+
+    // Verify session is invalidated - refresh should fail
+    const refreshRes = await fetch(`${baseUrl}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { Cookie: `fd_refresh=${refreshCookie.split(';')[0]}` },
+    });
+    assert.equal(refreshRes.status, 401);
+  });
+
+  it('POST /api/auth/disconnect clears token and returns 204', async (t) => {
+    if (!dbUp) {
+      t.skip('disconnect requires DB-backed session');
+      return;
+    }
+    // Login first
+    const { state, cookieValue } = await startFlow();
+    const loginRes = await fetch(`${baseUrl}/api/auth/github/callback?code=test-auth-code&state=${state}`, {
+      redirect: 'manual',
+      headers: { Cookie: `fd_oauth_state=${cookieValue}` },
+    });
+    assert.equal(loginRes.status, 302);
+    const accessCookie = cookieFull(loginRes, 'fd_access');
+    assert.ok(accessCookie, 'fd_access cookie must be set');
+
+    // Disconnect
+    const disconnectRes = await fetch(`${baseUrl}/api/auth/disconnect`, {
+      method: 'POST',
+      headers: { Cookie: accessCookie },
+    });
+    assert.equal(disconnectRes.status, 204);
+
+    // Verify session is cleared - refresh should fail
+    const refreshCookie = cookieFull(loginRes, 'fd_refresh');
+    const refreshRes = await fetch(`${baseUrl}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { Cookie: `fd_refresh=${refreshCookie.split(';')[0]}` },
+    });
+    assert.equal(refreshRes.status, 401);
+  });
+
+  it('DELETE /api/auth/data removes all user data and returns counts', async (t) => {
+    if (!dbUp) {
+      t.skip('delete-data requires DB-backed session');
+      return;
+    }
+    // Login first
+    const { state, cookieValue } = await startFlow();
+    const loginRes = await fetch(`${baseUrl}/api/auth/github/callback?code=test-auth-code&state=${state}`, {
+      redirect: 'manual',
+      headers: { Cookie: `fd_oauth_state=${cookieValue}` },
+    });
+    assert.equal(loginRes.status, 302);
+    const accessCookie = cookieFull(loginRes, 'fd_access');
+    assert.ok(accessCookie, 'fd_access cookie must be set');
+
+    // Delete data
+    const deleteRes = await fetch(`${baseUrl}/api/auth/data`, {
+      method: 'DELETE',
+      headers: { Cookie: accessCookie },
+    });
+    assert.equal(deleteRes.status, 200);
+    const body = await deleteRes.json();
+    assert.ok(body.deleted, 'delete response should include deleted counts');
+    assert.ok(typeof body.deleted === 'object', 'deleted should be an object');
+  });
+
+  it('POST /api/auth/refresh with revoked token returns 401', async (t) => {
+    if (!dbUp) {
+      t.skip('refresh requires DB-backed session');
+      return;
+    }
+    // Login first
+    const { state, cookieValue } = await startFlow();
+    const loginRes = await fetch(`${baseUrl}/api/auth/github/callback?code=test-auth-code&state=${state}`, {
+      redirect: 'manual',
+      headers: { Cookie: `fd_oauth_state=${cookieValue}` },
+    });
+    assert.equal(loginRes.status, 302);
+    const accessCookie = cookieFull(loginRes, 'fd_access');
+    const refreshCookie = cookieFull(loginRes, 'fd_refresh');
+    assert.ok(accessCookie, 'fd_access cookie must be set');
+    assert.ok(refreshCookie, 'fd_refresh cookie must be set');
+
+    // Disconnect first to revoke token
+    await fetch(`${baseUrl}/api/auth/disconnect`, {
+      method: 'POST',
+      headers: { Cookie: `${accessCookie}; ${refreshCookie}` },
+    });
+
+    // Try to refresh with revoked token - should fail
+    const refreshRes = await fetch(`${baseUrl}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { Cookie: `fd_refresh=${refreshCookie.split(';')[0]}` },
+    });
+    assert.equal(refreshRes.status, 401);
+    const body = await refreshRes.json();
+    assert.ok(body.error, 'refresh should return error on revoked token');
+  });
 });
 
 describe('User.upsertOne', () => {

@@ -48,6 +48,8 @@ describe('startSync with kind=initial (OAuth callback integration)', () => {
     await mongoose.connect('mongodb://127.0.0.1:27017/frieday_test_configdb', {
       serverSelectionTimeoutMS: 3000,
     });
+    // Remove any stale fixture user left by a prior run (unique index on githubId)
+    await User.deleteMany({ githubId: fakeUserDoc.githubId }).catch(() => {});
     await User.create(fakeUserDoc);
     store = createFakeStore();
     fetchers = createScriptedFetchers({ repos: fakeRepos });
