@@ -12,6 +12,7 @@ import LanguageDonut from '../components/charts/LanguageDonut.jsx';
 import MetricCard from '../components/domain/MetricCard.jsx';
 import RepoHealthTable from '../components/domain/RepoHealthTable.jsx';
 import InsightsCard from '../components/domain/InsightsCard.jsx';
+import CommitThemesCard from '../components/domain/CommitThemesCard.jsx';
 import { useAuth } from '../hooks/useAuth.js';
 import { useSync } from '../store/SyncStore.jsx';
 import { useToast } from '../store/ToastStore.jsx';
@@ -161,9 +162,14 @@ export default function Dashboard() {
           action={<MetricCaption range={range} scope="commits + PRs (merged)" />}
         >
           <ActivityChart buckets={data?.buckets || []} height={320} />
-          <div className="mt-12" role="region" aria-label="Activity table equivalent">
+          <div
+            className="mt-12 overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Activity table equivalent"
+          >
             <h3 className="sr-only">Activity table</h3>
-            <table className="w-full text-sm" role="table">
+            <table className="w-full min-w-[320px] text-sm" role="table">
               <thead>
                 <tr className="border-b border-border-strong">
                   <th className="text-left py-8 px-12 text-xs font-medium uppercase tracking-wide text-text3">
@@ -241,10 +247,16 @@ export default function Dashboard() {
             )}
           </Card>
 
+          {/* Commit themes (Phase 10.1) — sits with the other "what you work
+              on" signal. The card owns its own heading/empty state so it
+              never overlaps the cards above it. */}
+          <CommitThemesCard themes={data?.themes} />
+
           <Card
             title="Consistency"
             action={<span className="text-xs text-text3">vs. prior {rangeLabel}</span>}
           >
+            {' '}
             <div className="space-y-12">
               <div className="flex items-baseline gap-8">
                 <span className="metric text-4xl font-bold text-text mono">{activeDays}</span>

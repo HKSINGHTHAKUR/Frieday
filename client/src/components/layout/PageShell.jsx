@@ -18,9 +18,12 @@ export default function PageShell({ children }) {
         Skip to content
       </a>
       <Topbar />
-      <div className="flex flex-1">
+      <div className="flex min-w-0 flex-1">
         <Sidebar />
-        <main id="main-content" className="mx-auto w-full max-w-content flex-1 p-24">
+        {/* min-w-0 lets the flex child shrink below its content width so
+            wide tables/charts scroll inside the column instead of forcing
+            horizontal overflow on the page (design_system.md §27). */}
+        <main id="main-content" className="mx-auto w-full min-w-0 max-w-content flex-1 p-16 sm:p-24">
           <SyncProgress />
           {children}
         </main>

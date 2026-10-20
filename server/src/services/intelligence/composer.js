@@ -97,7 +97,7 @@ async function composeIntelligence({ userId, range, granularity, anchor = new Da
     // consistency, deltas, repoHealth) for the cache-hit response.
     const rawData = await loadRawData(userId, range, normalizedAnchor);
 
-    const [languages, focus, consistency, deltas, repoHealth] = await Promise.all([
+    const [languages, focus, themes, consistency, deltas, repoHealth] = await Promise.all([
       Promise.resolve(
         intelligence.languages.computeLanguageAggregation({
           commits: rawData.commits,
@@ -108,6 +108,12 @@ async function composeIntelligence({ userId, range, granularity, anchor = new Da
         intelligence.focus.computeFocusTags({
           commits: rawData.commits,
           languageSnapshots: rawData.languageSnapshots,
+          repositories: rawData.repositories,
+        })
+      ),
+      Promise.resolve(
+        intelligence.themes.computeThemes({
+          commits: rawData.commits,
           repositories: rawData.repositories,
         })
       ),
@@ -150,6 +156,7 @@ async function composeIntelligence({ userId, range, granularity, anchor = new Da
       buckets: timeline,
       languages,
       focus,
+      themes,
       consistency,
       deltas,
       repoHealth,
@@ -172,6 +179,13 @@ async function composeIntelligence({ userId, range, granularity, anchor = new Da
     issues: rawData.issues,
   });
   payload.consistency = consistencyResult;
+
+  // Commit themes (Phase 10.1) — computed on demand from the same
+  // user-scoped commits. No persistence, no extra query.
+  payload.themes = intelligence.themes.computeThemes({
+    commits: rawData.commits,
+    repositories: rawData.repositories,
+  });
 
   // Evaluate insights
   const insights = evaluateInsightsFromPayload(
@@ -197,11 +211,10 @@ async function composeIntelligence({ userId, range, granularity, anchor = new Da
   // Persist derived data
   const generatedAt = new Date();
   await Promise.all([
-    persistActivityBuckets(userId, range, payload.timeline, rawData, effGranularity),
+    persistActivityBuckets(userId, range, payload.timeline, rawData, effectiveGranularity(range)),
     persistInsights(userId, range, insights, generatedAt),
   ]);
 
-  // Build final payload
   return {
     kpis: {
       totalCommits: rawData.commits.length,
@@ -215,6 +228,7 @@ async function composeIntelligence({ userId, range, granularity, anchor = new Da
     buckets: payload.timeline,
     languages: payload.languages,
     focus: payload.focus,
+    themes: payload.themes,
     consistency: payload.consistency,
     deltas: payload.deltas,
     repoHealth: payload.repoHealth,

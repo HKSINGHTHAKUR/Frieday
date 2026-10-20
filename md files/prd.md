@@ -275,7 +275,7 @@ V1 = MVP + :
 
 - Multi-provider (GitLab, Bitbucket).
 - Org/team aggregate views (opt-in only).
-- Commit-message theme clustering (deterministic topic extraction before any LLM).
+- ~~Commit-message theme clustering (deterministic topic extraction before any LLM).~~ **PROMOTED to Phase 10.1 (committed)** — see §12.1.
 - Contribution to open-source vs. personal work split.
 - Goal tracking ("ship 3 PRs/week") — only if non-shaming design validated.
 - Portfolio / shareable profile page with verified badges.
@@ -283,6 +283,33 @@ V1 = MVP + :
 - Anomaly detection (unusual burst/drop with honest uncertainty).
 
 None of these are in MVP or V1 scope. They must not appear in `tasks.md` as committed work.
+
+### 12.1 Phase 10.1 — Commit-theme clustering (promoted from Future)
+
+**Promoted (2026-10-20) to committed scope.** Commit-message theme clustering is
+now Phase 10.1 work, tracked in `tasks.md` as T10.1. It is a *deterministic*
+feature — no LLM, no inferred intent.
+
+**What it is:** coarse work themes derived from exact terms and conventional-commit
+prefixes in the user's own commit **headlines** (e.g. `fix:` → Bug fix, `feat:` →
+Feature, `security` → Security). Seven themes: Bug fix, Security, Performance,
+Testing, Documentation, Refactor, Feature.
+
+**What it is not:** a skill assessment, a specialisation claim, a productivity
+score, or a hiring signal (see §13 exclusions). A theme means "N commit headlines
+contained a term from this theme's rule set" — nothing more.
+
+**Honesty constraints (binding):**
+- Percentages are computed over **themed commits only**; the denominator is always displayed.
+- Every commit falls into exactly one bucket: a theme, `unclassified`, `noMessage`, or `noise` (maintenance). Counts reconcile: `totalCommits = themedCommits + unclassified + noMessage + noise`.
+- When no commits qualify, the UI shows an honest empty state — never a fabricated distribution.
+- Every theme carries a confidence level (High/Medium/Low) and bounded evidence.
+- Commit **bodies** (`messageFull`) are never scanned or exposed. Headline samples are bounded to 5 per theme.
+- No theme is ever asserted about a developer's skill, intent, or capability.
+
+**Scope boundaries (v1):** cross-repository aggregation only; per-repository filtering
+is a future extension. Computed on demand, never persisted. No new dependency, no new
+model, no new endpoint.
 
 ---
 
@@ -497,6 +524,7 @@ V1 success adds: AI summaries shown with evidence link 100% of time; webhook fre
 - **AI summary:** an LLM paraphrase of an insight; never a source of numbers.
 - **Active day:** a day with ≥1 authored commit OR merged PR OR qualifying issue event (fixed definition, versioned).
 - **Focus area:** a coarse work theme (API, Frontend, Database, DevOps, Docs) from deterministic rules, always with confidence.
+- **Commit theme (Phase 10.1):** a coarse work theme (Bug fix, Security, Performance, Testing, Documentation, Refactor, Feature) derived from exact terms and conventional-commit prefixes in the user's commit headlines. Always with confidence, always with a stated denominator. Never a claim about skill or intent.
 
 ## Appendix B — Open Decisions (require owner approval)
 

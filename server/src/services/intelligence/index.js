@@ -11,6 +11,7 @@
 const timeline = require('./timeline');
 const languages = require('./languages');
 const focus = require('./focus');
+const themes = require('./themes');
 const consistency = require('./consistency');
 const deltas = require('./deltas');
 const repoHealth = require('./repoHealth');
@@ -21,6 +22,7 @@ module.exports = {
   timeline,
   languages,
   focus,
+  themes,
   consistency,
   deltas,
   repoHealth,

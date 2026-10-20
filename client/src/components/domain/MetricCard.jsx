@@ -9,14 +9,18 @@ export default function MetricCard({ title, value, caption, delta }) {
 
   return (
     <Card title={title}>
-      <div className="flex items-baseline justify-between gap-12 mb-4">
-        <div>
+      {/* Wraps instead of overflowing: at 320px the KPI column is ~94px wide
+          and the value + delta side-by-side need ~138px. The delta drops to
+          its own line (right-aligned) rather than clipping the card.
+          design_system.md §27: no unintended horizontal overflow. */}
+      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-12 gap-y-4">
+        <div className="min-w-0">
           <p className="metric text-4xl font-bold text-text mono">{value}</p>
           <p className="mt-4 text-xs text-text3">{title}</p>
         </div>
-        <div className="text-right">
+        <div className="ml-auto shrink-0 text-right">
           <p className={`metric text-xl font-bold mono ${deltaColor}`}>{deltaDisplay}</p>
-          <p className="text-xs text-text3 mt-2">vs prior period</p>
+          <p className="mt-2 text-xs text-text3">vs prior period</p>
         </div>
       </div>
       <div className="mt-4">{caption}</div>

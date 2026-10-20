@@ -75,7 +75,7 @@ flowchart TB
 | 5 | Data ingestion | Orchestrates per-resource sync (repos→commits→PRs→issues→languages), caps, progress, retries | Compute insights; render UI |
 | 6 | Data normalization | Maps GitHub DTOs → Mongoose docs, dedupe, truncation, timestamp comparison | Call network; compute aggregates |
 | 7 | Database | Schemas, indexes, queries, transactions where needed | Network calls; LLM calls |
-| 8 | Intelligence engine | Pure functions: buckets, languages, focus tags, streaks, deltas, health, insight templates | Network, DB writes (reads via injected repos), LLM |
+| 8 | Intelligence engine | Pure functions: buckets, languages, focus tags, commit themes (Phase 10.1), streaks, deltas, health, insight templates | Network, DB writes (reads via injected repos), LLM |
 | 9 | AI/explanation layer | `AIExplainer` interface; template fallback (MVP); LLM paraphrase (V1) with validation | Compute metrics; persist truth; invent numbers |
 | 10 | Background jobs | node-cron in-process (MVP: manual + initial; T7.2 adds the 6h staggered per-user scheduler); BullMQ+Redis (V1) | Anything synchronous on request path |
 | 11 | Webhooks (V1) | HMAC verification, dedupe, enqueue incremental ingest | Trust unverified payloads; full re-sync per event |
@@ -164,6 +164,8 @@ frieday/
         │   │   ├── timeline.js          # bucketize (pure)
         │   │   ├── languages.js         # aggregate (pure)
         │   │   ├── focus.js             # focusRules v1 (pure, versioned)
+        │   │   ├── theme-rules.js       # Phase 10.1: theme taxonomy (prefixes, tokens, priority)
+        │   │   ├── themes.js            # Phase 10.1: commit-theme classifier (pure, versioned)
         │   │   ├── consistency.js       # active days/streaks/gaps (pure)
         │   │   ├── deltas.js            # period comparison (pure)
         │   │   ├── repoHealth.js        # Active/Steady/Quiet/Stalled (pure)
@@ -205,7 +207,7 @@ Base: `/api`. JSON only. Auth: cookies (`fd_access`, `fd_refresh`), `credentials
 | DELETE | `/api/auth/data` | yes | Full wipe: delete all user-scoped synced + derived collections and the user document itself | Returns accurate per-collection counts `{ deleted: { repositories, commits, ..., users } }`; reconnecting later starts from scratch |
 | POST | `/api/sync` | yes | Enqueue/start sync (MVP: in-process, 1 at a time per user) | 409 if already running |
 | GET | `/api/sync/status` | yes | Progress: `{ status, phase, done, total, perResource, error? }` | Poll every 2s |
-| GET | `/api/dashboard?range=30d\|90d\|12m` | yes | Aggregates: KPIs, timeline buckets, languages, top repos, insights (template text in MVP) | Memoized 60s |
+| GET | `/api/dashboard?range=30d\|90d\|12m` | yes | Aggregates: KPIs, timeline buckets, languages, focus tags, **commit themes** (Phase 10.1), top repos, insights (template text in MVP) | Memoized 60s |
 | GET | `/api/repos?sort=activity\|recent&limit&cursor` | yes | Repo list with health + counts | Cursor pagination |
 | GET | `/api/repos/:id?range=90d` | yes | Repo detail + recent items + mini timeline | 404 if not owned/inaccessible |
 | GET | `/api/timeline?range&repoId?&granularity=` | yes | Raw buckets for charts + CSV (V1 `&format=csv`) | |
@@ -337,15 +339,60 @@ flowchart LR
   L --> T[ή timeline.js → buckets]
   L --> LG[ή languages.js → shares]
   L --> F[ή focus.js v1 → tags + confidence]
+  L --> TH[ή themes.js v1 → commit themes<br/>themed/unclassified/noMessage/noise]
   L --> C[ή consistency.js → active days, streaks, gaps]
   T --> D[ή deltas.js → % vs prior]
   C --> D
-  T & LG & F & C & D --> H[ή repoHealth.js per repo]
+  T & LG & F & TH & C & D --> H[ή repoHealth.js per repo]
   H --> IN[ή insights.js → ≤8 insights<br/>metrics + evidence refs]
   IN --> R[Response + persist Insight docs<br/>recompute path]
 ```
 
-All `ή` functions are pure (input records → output JSON), unit-tested with fixtures, versioned (e.g., `focusRules v1`). The `index.js` composer is the only place that touches DB (read raw, write derived on recompute). Request path may serve cached `ActivityBucket`/`Insight` docs when fresh (same `range` + `SyncState` unchanged), else recompute synchronously (MVP datasets are small).
+All `ή` functions are pure (input records → output JSON), unit-tested with fixtures, versioned (e.g., `focusRules v1`, `THEME_RULES_VERSION` / `THEME_OUTPUT_VERSION`). The `index.js` composer is the only place that touches DB (read raw, write derived on recompute). Request path may serve cached `ActivityBucket`/`Insight` docs when fresh (same `range` + `SyncState` unchanged), else recompute synchronously (MVP datasets are small).
+
+### 10.1 Commit-theme clustering contract (Phase 10.1)
+
+`themes.js` classifies each commit into exactly one bucket, using only the
+commit's `messageHeadline`:
+
+| Bucket | Meaning |
+|--------|---------|
+| theme | matched a theme rule (conventional prefix, else exact token via `THEME_PRIORITY`) |
+| `unclassified` | a headline existed but matched no theme term |
+| `noMessage` | headline was null / empty / whitespace |
+| `noise` | maintenance signal (`chore:`, `Merge pull request`, `wip`, `bump …`, …) — counted, never presented as a theme |
+
+Payload shape returned by `computeThemes({ commits, repositories })`:
+
+```jsonc
+{
+  "version": 1,            // THEME_OUTPUT_VERSION
+  "rulesVersion": 1,       // THEME_RULES_VERSION
+  "totalCommits": 120,
+  "themedCommits": 84,     // the denominator for theme percentages
+  "unclassified": 20,
+  "noMessage": 10,
+  "noise": 6,
+  "items": [
+    {
+      "theme": "Bug fix",
+      "confidence": "High", // High >=10 commits AND >=2 repos; Medium >=5; else Low
+      "commitCount": 40,
+      "share": 0.476,       // over themedCommits only
+      "evidence": {
+        "repoNames": ["me/alpha"],       // <= 10
+        "commitShas": ["a1b2c3"],        // <= 20
+        "sampleMessages": ["fix: null deref in parser"] // <= 5, headline only
+      }
+    }
+  ]
+}
+```
+
+Guarantees: computed on demand from the already-loaded user-scoped commits (no
+extra query, no persistence, no new model, no new endpoint); commit bodies
+(`messageFull`) are never scanned or exposed; every theme carries a confidence
+level and bounded evidence; no theme is asserted when nothing qualifies.
 
 ---
 

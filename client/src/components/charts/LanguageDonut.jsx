@@ -51,11 +51,16 @@ function CustomTooltip({ active, payload }) {
  * CustomLegend — renders language legend below the donut so long language
  * names never overflow or collide with chart slices (design_system.md §17:
  * "legend with bytes + % + commit share").
+ *
+ * The legend lives OUTSIDE the fixed-height chart box (design_system.md §27,
+ * and the same pattern ActivityChart uses): a fixed height on the wrapper that
+ * also contains the legend clips/overlaps the legend onto the next card.
  */
 function CustomLegend({ payload }) {
   const total = payload.reduce((sum, { value }) => sum + value, 0);
+  if (payload.length === 0) return null;
   return (
-    <div className="flex flex-wrap gap-16 mt-8">
+    <div className="mt-12 flex flex-col gap-8" role="list" aria-label="Language legend">
       {payload.map((entry, index) => {
         const color = COLORS[index % COLORS.length];
         const { name, value, commitShare } = entry;
@@ -67,13 +72,15 @@ function CustomLegend({ payload }) {
           return `${bytes} B`;
         };
         return (
-          <div key={name} className="flex items-center gap-8 min-w-[150px]">
-            <span className="w-12 h-2 rounded" style={{ backgroundColor: color }} />
-            <div className="flex flex-col">
-              <span className="text-sm text-text truncate" title={name}>
-                {name}
-              </span>
-              <span className="text-xs text-text mono">
+          <div key={name} role="listitem" className="flex min-w-0 items-start gap-8">
+            <span
+              className="mt-4 h-2 w-12 shrink-0 rounded"
+              style={{ backgroundColor: color }}
+              aria-hidden="true"
+            />
+            <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-8 gap-y-2">
+              <span className="min-w-0 break-words text-sm text-text">{name}</span>
+              <span className="mono shrink-0 text-xs text-text2">
                 {formatBytes(value)} · {percentage}% · commit share {commitShareDisplay}
               </span>
             </div>
@@ -93,10 +100,10 @@ const LanguageDonut = memo(function LanguageDonut({ data }) {
 
   if (!total) {
     return (
-      <div className="h-[280px] w-full flex items-center justify-center bg-surface rounded-md border border-border">
-        <div className="text-center text-text3 p-16">
+      <div className="flex w-full items-center justify-center rounded-md border border-border bg-surface">
+        <div className="p-16 text-center text-text3">
           <p className="font-medium text-text">No language data</p>
-          <p className="text-sm text-text3 mt-4">Sync repositories to see language breakdown.</p>
+          <p className="mt-4 text-sm text-text3">Sync repositories to see language breakdown.</p>
         </div>
       </div>
     );
@@ -116,27 +123,31 @@ const LanguageDonut = memo(function LanguageDonut({ data }) {
   const dataForChart = otherValue > 0 ? [...top5, { name: 'Other', value: otherValue }] : top5;
 
   return (
-    <div className="h-[280px] w-full" role="img" aria-label="Language breakdown donut chart">
-      <ResponsiveContainer width="100%" height={220}>
-        <PieChart>
-          <Pie
-            data={dataForChart}
-            cx="50%"
-            cy="50%"
-            innerRadius={60}
-            outerRadius={70}
-            paddingAngle={2}
-            dataKey="value"
-            nameKey="name"
-            labelLine={false}
-          >
-            {dataForChart.map((_, index) => (
-              <Cell key={index} fill={COLORS[index % COLORS.length]} />
-            ))}
-          </Pie>
-          <Tooltip content={<CustomTooltip />} />
-        </PieChart>
-      </ResponsiveContainer>
+    <div className="w-full" role="img" aria-label="Language breakdown donut chart">
+      {/* Fixed height applies to the chart box ONLY — the legend below is a
+          sibling so it can never be clipped or overlap the next card. */}
+      <div className="h-[200px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={dataForChart}
+              cx="50%"
+              cy="50%"
+              innerRadius="45%"
+              outerRadius="78%"
+              paddingAngle={2}
+              dataKey="value"
+              nameKey="name"
+              labelLine={false}
+            >
+              {dataForChart.map((_, index) => (
+                <Cell key={index} fill={COLORS[index % COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip content={<CustomTooltip />} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
       <CustomLegend payload={dataForChart} />
     </div>
   );

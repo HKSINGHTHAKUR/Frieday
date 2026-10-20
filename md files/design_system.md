@@ -152,6 +152,7 @@ Scale is fixed (no fluid type in MVP). Long titles truncate with ellipsis + full
 ## 14. Navigation
 
 - Topbar (56px): logo mark "Frieday" (wordmark, no mascot), environment-agnostic; right side: sync status pill + "Sync now" button + avatar menu (Settings, Disconnect, Logout).
+- **Avatar menu:** anchored to the avatar's trailing edge (`right-0`) so it grows leftward into the viewport and can never run off the right edge. Minimum width `w-56` with `max-w-[calc(100vw-32px)]` so "Disconnect GitHub" is never clipped; item labels wrap rather than truncate. `z-50` so no card can paint over it. Menu semantics (`role="menu"` / `role="menuitem"`), outside-click and Escape to close, and the visible focus ring are all preserved.
 - Sidebar (248px): sections — Overview, Timeline, Repositories, Insights, Settings. Active: accent-soft bg + accent left indicator (3px) + semibold label. Icons: 16px outline set (single library — Lucide — no emoji icons).
 - Breadcrumbs on RepoDetail (`Repositories / owner/name`). Back button preserves filter state via URL params.
 
@@ -185,6 +186,16 @@ Scale is fixed (no fluid type in MVP). Long titles truncate with ellipsis + full
 ```
 
 Rules: KPI values from `GET /dashboard` only; chart + table share the same bucket payload (no divergent queries); every number has caption/tooltip with scope; "View all" links preserve range.
+
+**Right rail order (Phase 10.1):** Languages donut → Focus areas → **Commit themes** → Consistency. Each card owns its own heading row and empty state, so no card can overlap the one above it.
+
+**Commit themes card (Phase 10.1):**
+- Heading "Commit themes" with the denominator on the right ("of N themed commits"). The denominator is always visible — percentages are over themed commits only.
+- Per theme: name, confidence badge (High → success, Medium → warning, Low → info), `count · percent%`, contributing repository names, and up to 5 mono headline samples as evidence.
+- A footer line reports the non-theme buckets ("N unclassified · N without a message · N maintenance") so nothing is silently hidden.
+- A plain-language disclaimer states that themes describe what the user wrote, not what they are skilled at. Never a skill, intent, or specialisation claim.
+- Empty state (no themed commits): "No commit themes detected" + "Not enough commit-message detail to identify themes." Never a fabricated distribution or a default theme.
+- No chart — a compact ranked list is the honest representation of a small, low-confidence dataset.
 
 ## 17. Charts
 
@@ -252,6 +263,15 @@ Rules: KPI values from `GET /dashboard` only; chart + table share the same bucke
 - ≥1200px: full grid (§16). 900–1200px: charts stack (chart full-width, languages+streak side-by-side below). <900px: sidebar → icon rail; KPIs 2×2; tables → card list (repo rows become stacked cards, sparkline hidden). <640px: single column; topbar condenses (Sync button → icon); charts height 220px; tables horizontally scroll with sticky first column instead of squishing.
 - Touch: targets ≥44px on mobile; tooltips become tap-to-open; no hover-only actions.
 
+**Implementation status (Phase 10.1, 2026-10-20).** The responsive contract above was specified but not implemented; the sidebar was `shrink-0` and visible at every breakpoint, so below ~900px it consumed the content column and forced horizontal overflow. Implemented now:
+- **Tailwind breakpoints realigned** to the documented values (`sm 640`, `md 900`, `lg 1200`). The defaults were `md 768` / `lg 1024`, which produced a 768–900px band where the layout was neither the mobile nor the desktop design.
+- **Sidebar** (`components/layout/Sidebar.jsx`): `hidden sm:flex`. From 640px it is the 64px icon rail (`w-rail`); from 900px (`md`) it expands to the full 248px rail (`w-sidebar`) with visible labels. Below 640px it is hidden entirely and the topbar hamburger opens the `MobileNav` slide-over. The rail is present at every width ≥640px — there is no navigation dead zone between 640px and 900px. The connection card shows only the avatar in rail mode; the login and sync-status text stay in the accessibility tree via `sr-only`.
+- **Mobile navigation** (`components/layout/MobileNav.jsx`): slide-over with scrim, opened by the hamburger in the topbar. Escape closes it, focus moves into the panel, Tab/Shift+Tab are trapped inside the panel (same pattern as `Modal.jsx`), and focus returns to the hamburger that opened it on close. The scrim is a labelled close button.
+- **Topbar** (`components/layout/Topbar.jsx`): hamburger below 640px, connection badge hidden below `sm`, and the "Sync now" button condenses to a compact labelled variant so the avatar and its menu are always reachable.
+- **PageShell**: the content column is `min-w-0` so wide children scroll *inside* the column rather than forcing page-level horizontal overflow. Page gutter is 16px below `sm`, 24px from `sm` up (§7).
+- **Tables**: the Dashboard activity table gained `overflow-x-auto` (matching `RepoHealthTable`), so wide tables scroll rather than squish.
+- **Charts**: a fixed height may only wrap the chart itself. A fixed height on a wrapper that also contains a legend clips the legend onto the next card — this was the cause of the Focus-areas overlap. `ActivityChart` already followed the correct pattern (chart box sized, legend a sibling); `LanguageDonut` now does too.
+
 ## 28. Accessibility (WCAG 2.1 AA — enforces `rules.md` §20)
 
 - Contrast: all pairs in §4 pass AA; chart grid/axis decorative only (data always has text equivalent via table toggle "View as table").
@@ -285,3 +305,5 @@ boxShadow: { sm: 'var(--shadow-sm)', md: 'var(--shadow-md)', lg: 'var(--shadow-l
 ```
 
 Component inventory (must exist before Phase 5 is marked done): `Button, Card, Badge, Input, Select, SegmentedControl, Modal, Toast, Tooltip, Skeleton, EmptyState, ErrorCard, SyncProgress, InsightCard, EvidenceExpander, RepoRow, ActivityChart, LanguageDonut, MetricCard`. Missing primitives block phase sign-off.
+
+Phase 10.1 additions: `CommitThemesCard` (components/domain) — commit-theme list with denominator, confidence badges, bounded headline samples, honest empty state; `MobileNav` (components/layout) — slide-over primary navigation for <640px.

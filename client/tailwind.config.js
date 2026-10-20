@@ -63,6 +63,9 @@ export default {
       },
       width: {
         sidebar: '248px',
+        // 64px icon rail (design_system.md §15: "collapses to 64px icon rail
+        // <900px").
+        rail: '64px',
       },
       maxWidth: {
         content: '1200px',
@@ -71,6 +74,15 @@ export default {
       height: {
         topbar: '56px',
       },
+    },
+    // Breakpoints per design_system.md §8: sm 640, md 900 (sidebar collapses
+    // to icons), lg 1200 (full grid). Tailwind defaults (md 768 / lg 1024)
+    // are overridden so the CSS matches the documented layout contract.
+    screens: {
+      sm: '640px',
+      md: '900px',
+      lg: '1200px',
+      xl: '1400px',
     },
   },
   plugins: [],

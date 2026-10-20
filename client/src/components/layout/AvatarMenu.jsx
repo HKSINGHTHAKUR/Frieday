@@ -81,7 +81,10 @@ export default function AvatarMenu() {
         <div
           role="menu"
           aria-label="Account"
-          className="absolute right-0 top-full z-40 mt-8 w-44 rounded-md border border-border bg-surface p-4 shadow-md"
+          // Anchored to the avatar's right edge so the menu grows leftward
+          // into the viewport instead of off-screen. `max-w` keeps it inside
+          // narrow viewports; item labels wrap rather than clip.
+          className="absolute right-0 top-full z-50 mt-8 w-56 max-w-[calc(100vw-32px)] rounded-md border border-border bg-surface p-8 shadow-md"
         >
           <div className="border-b border-border pb-8">
             <p className="truncate text-sm font-medium text-text">{user ? user.login : '…'}</p>

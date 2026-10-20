@@ -6,7 +6,13 @@
  *   loading?: boolean,
  * } & import('react').ButtonHTMLAttributes<HTMLButtonElement>} props
  */
-export default function Button({ variant = 'secondary', size = 'md', loading = false, ...rest }) {
+export default function Button({
+  variant = 'secondary',
+  size = 'md',
+  loading = false,
+  className = '',
+  ...rest
+}) {
   const variants = {
     primary: 'bg-accent text-white hover:bg-accent-hover',
     secondary: 'bg-surface text-text border border-border hover:bg-surface2',
@@ -16,7 +22,7 @@ export default function Button({ variant = 'secondary', size = 'md', loading = f
   const sizes = { sm: 'h-28 px-12 text-sm', md: 'h-36 px-16 text-sm', lg: 'h-44 px-24 text-base' };
   return (
     <button
-      className={`inline-flex items-center justify-center gap-8 rounded-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${variants[variant]} ${sizes[size]}`}
+      className={`inline-flex items-center justify-center gap-8 rounded-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${variants[variant]} ${sizes[size]} ${className}`}
       disabled={loading || rest.disabled}
       {...rest}
     >

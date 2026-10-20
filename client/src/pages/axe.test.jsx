@@ -43,6 +43,28 @@ const DASHBOARD_PAYLOAD = {
     commitShare: { JavaScript: 0.6, TypeScript: 0.4 },
   },
   focus: [{ tag: 'API work', confidence: 'High', evidence: { repoNames: ['me/app'] } }],
+  themes: {
+    version: 1,
+    rulesVersion: 1,
+    totalCommits: 120,
+    themedCommits: 84,
+    unclassified: 20,
+    noMessage: 10,
+    noise: 6,
+    items: [
+      {
+        theme: 'Bug fix',
+        confidence: 'High',
+        commitCount: 40,
+        share: 0.476,
+        evidence: {
+          repoNames: ['me/app'],
+          commitShas: ['abc123def456'],
+          sampleMessages: ['fix: null deref in parser'],
+        },
+      },
+    ],
+  },
   consistency: {
     activeDays: 12,
     currentStreak: 3,

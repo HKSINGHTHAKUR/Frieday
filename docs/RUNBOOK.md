@@ -567,26 +567,26 @@ A full logical backup/restore drill was executed end-to-end against the Atlas
 production cluster. The connection URI was read from the local `.env` and
 never written to logs, documentation, or committed files.
 
-| Item                      | Detail                                                                    |
-| ------------------------- | ------------------------------------------------------------------------- |
-| Source                    | Atlas cluster `frieday.klryq5o.mongodb.net`, database `frieday_prod`      |
-| Backup tool               | mongodump 100.19.1                                                        |
-| Backup output             | `C:\Temp\frieday_prod_backup_20261020103600\frieday_prod\` (11 BSON + 11 metadata.json + prelude.json) |
-| mongodump exit code       | 0                                                                         |
-| Isolated restore target   | Local `mongodb://127.0.0.1:27017`, database `frieday_prod_restored_20261020103600` |
-| Restore tool              | mongorestore 100.19.1, `--nsFrom="frieday_prod.*" --nsTo="frieday_prod_restored_20261020103600.*"` (no `--drop`) |
-| mongorestore result       | 1316 document(s) restored successfully, 0 failures                        |
-| Production write?         | NO — restore target was always local; no `mongorestore` or `--drop` was ever pointed at Atlas |
+| Item                    | Detail                                                                                                           |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Source                  | Atlas cluster `frieday.klryq5o.mongodb.net`, database `frieday_prod`                                             |
+| Backup tool             | mongodump 100.19.1                                                                                               |
+| Backup output           | `C:\Temp\frieday_prod_backup_20261020103600\frieday_prod\` (11 BSON + 11 metadata.json + prelude.json)           |
+| mongodump exit code     | 0                                                                                                                |
+| Isolated restore target | Local `mongodb://127.0.0.1:27017`, database `frieday_prod_restored_20261020103600`                               |
+| Restore tool            | mongorestore 100.19.1, `--nsFrom="frieday_prod.*" --nsTo="frieday_prod_restored_20261020103600.*"` (no `--drop`) |
+| mongorestore result     | 1316 document(s) restored successfully, 0 failures                                                               |
+| Production write?       | NO — restore target was always local; no `mongorestore` or `--drop` was ever pointed at Atlas                    |
 
 **Verification matrix (source dump BSON/metadata vs restored local DB):**
 
-| Check               | Source evidence                                   | Restored evidence                  | Result |
-| ------------------- | ------------------------------------------------- | ---------------------------------- | ------ |
-| Collection list     | 11 collections in dump                            | 11 collections in restored DB      | PASS   |
+| Check               | Source evidence                                                                                                                                                                      | Restored evidence                    | Result |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------ | ------ |
+| Collection list     | 11 collections in dump                                                                                                                                                               | 11 collections in restored DB        | PASS   |
 | Document counts     | activitybuckets=906, commits=341, insights=23, repositories=14, languagesnapshots=14, syncjobs=12, syncstates=5, users=1, issues=0, pullrequests=0, webhookdeliveries=0 (total 1316) | Identical per-collection, total 1316 | PASS   |
-| Index definitions   | All names, keys, and `unique` flags from metadata.json | Match for every collection      | PASS   |
-| mongodump exit code | 0                                                 | n/a                                | PASS   |
-| mongorestore exit   | n/a                                               | 0 failures across 1316 docs        | PASS   |
+| Index definitions   | All names, keys, and `unique` flags from metadata.json                                                                                                                               | Match for every collection           | PASS   |
+| mongodump exit code | 0                                                                                                                                                                                    | n/a                                  | PASS   |
+| mongorestore exit   | n/a                                                                                                                                                                                  | 0 failures across 1316 docs          | PASS   |
 
 **Cleanup:** The isolated restored database `frieday_prod_restored_20261020103600`
 was dropped after the verification report was written (see §12 cleanup policy).
