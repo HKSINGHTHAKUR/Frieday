@@ -78,11 +78,23 @@ export default {
     // Breakpoints per design_system.md §8: sm 640, md 900 (sidebar collapses
     // to icons), lg 1200 (full grid). Tailwind defaults (md 768 / lg 1024)
     // are overridden so the CSS matches the documented layout contract.
+    //
+    // `desktop` (1024) is the auth composition's own breakpoint — the login
+    // page switches from the stacked to the side-by-side layout there. It is
+    // NOT the app's `lg` (1200). It must stay in sync with
+    // `STACKED_BREAKPOINT` in `client/src/robot/layout.js`.
+    //
+    // `short` / `compact` are height tiers (raw media queries) so the desktop
+    // composition can tighten its vertical rhythm instead of scrolling on a
+    // short window. `compact` is registered last so it wins over `short`.
     screens: {
       sm: '640px',
       md: '900px',
+      desktop: '1024px',
       lg: '1200px',
       xl: '1400px',
+      short: { raw: '(min-width: 1024px) and (max-height: 880px)' },
+      compact: { raw: '(min-width: 1024px) and (max-height: 780px)' },
     },
   },
   plugins: [],

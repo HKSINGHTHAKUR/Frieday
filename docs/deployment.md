@@ -110,6 +110,36 @@ Rules: **never** put `GITHUB_CLIENT_SECRET`, `JWT_SECRET`, `TOKEN_ENC_KEY`, `MON
 
 Verified in code (unchanged by T9.1): OAuth `state` CSRF cookie is HttpOnly + `Secure` in prod; callback verifies state before any exchange (403 on mismatch); token exchanged server-side and encrypted with AES-256-GCM (`TOKEN_ENC_KEY`); tokens never reach the browser (`rules.md` §7). Production cookie settings: `HttpOnly; Secure (NODE_ENV=production); SameSite=Lax; Path=/` (`session.service.js`).
 
+#### One OAuth App per environment (REQUIRED)
+
+A GitHub OAuth App holds exactly ONE "Authorization callback URL". Local
+development and production therefore need **separate OAuth Apps** (separate
+client id + secret) and **separate callback URLs**:
+
+| Environment | Authorization callback URL                              | OAuth App      |
+| ----------- | ------------------------------------------------------- | -------------- |
+| production  | `https://frieday.onrender.com/api/auth/github/callback` | production app |
+| local dev   | `http://localhost:5000/api/auth/github/callback`        | local app      |
+
+If both environments share one OAuth App, whichever callback URL is stored in
+the app wins and the other environment fails with _"The redirect_uri is not
+associated with this application"_. This is a GitHub-side setting — no code
+change can fix it.
+
+**Local development** uses the local app's credentials in the repo-root `.env`
+(`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_CALLBACK_URL`). **Production**
+uses the production app's credentials as Render environment variables, and
+never reads the `.env` file.
+
+Two guards enforce the separation server-side (both covered by
+`server/tests/oauth.callback.test.js` and `server/tests/oauth.authorizationUrl.test.js`):
+
+- `server/src/index.js` does **not** load `.env` when `NODE_ENV=production`, so
+  a local `.env` can never shadow the injected production values.
+- `server/src/config/env.js` **refuses to boot** if the production callback
+  resolves to a localhost URL (`Invalid env: GITHUB_CALLBACK_URL — …`), instead
+  of silently starting a server that cannot complete a sign-in.
+
 ### Webhook
 
 - URL: `https://<host>/api/webhooks/github` — reachable behind the deployed server (HMAC gate first, `docs/webhooks.md`).

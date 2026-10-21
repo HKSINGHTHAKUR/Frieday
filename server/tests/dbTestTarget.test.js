@@ -229,6 +229,10 @@ describe('dbTestTarget — connectDb() refuses BEFORE calling mongoose.connect',
     process.env.JWT_SECRET = 'test-jwt-secret-16+';
     process.env.TOKEN_ENC_KEY = 'ab'.repeat(32);
     process.env.MONGO_URI = SYNTHETIC_PRODUCTION_URI;
+    // Production also requires a non-localhost OAuth callback (config/env.js
+    // refuses to boot otherwise). This test is about the DB guard, so supply
+    // a valid production callback to reach the code path it exercises.
+    process.env.GITHUB_CALLBACK_URL = 'https://frieday.onrender.com/api/auth/github/callback';
 
     delete require.cache[require.resolve('../src/config/env')];
     delete require.cache[require.resolve('../src/config/db')];

@@ -17,6 +17,9 @@ const FAKE_GITHUB_ID = 4242;
 const fake = {
   behavior: 'ok', // 'ok' | 'denied' | 'socket-error'
   tokenCalls: 0,
+  // The raw body of the most recent token request, so a test can assert the
+  // exchange carried the same redirect_uri as the authorization request.
+  lastTokenBody: '',
 };
 
 function startFakeGithub() {
@@ -32,6 +35,7 @@ function startFakeGithub() {
         body += chunk;
       });
       req.on('end', () => {
+        fake.lastTokenBody = body;
         assert.ok(body.includes('code=test-auth-code'), 'code must be sent in the token request');
         if (fake.behavior === 'denied') {
           res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -246,6 +250,39 @@ describe('GET /api/auth/github + /callback (tasks.md T1.1)', () => {
     );
     assert.deepEqual(doc.scopes, ['read:user', 'repo']);
     assert.ok(doc.tokenUpdatedAt instanceof Date);
+  });
+
+  it('exchanges the code with the SAME redirect_uri it authorized with', async (t) => {
+    if (!dbUp) {
+      t.skip('login now persists session state, which requires MongoDB');
+      return;
+    }
+    fake.behavior = 'ok';
+    const { startRes, state, cookieValue } = await startFlow();
+
+    // The redirect_uri the authorization request carried.
+    const authorizeRedirect = new URL(startRes.headers.get('location'));
+    const authorizeRedirectUri = authorizeRedirect.searchParams.get('redirect_uri');
+    assert.equal(authorizeRedirectUri, 'http://localhost:5000/api/auth/github/callback');
+
+    await fetch(
+      `${baseUrl}/api/auth/github/callback?code=test-auth-code&state=${encodeURIComponent(state)}`,
+      {
+        redirect: 'manual',
+        headers: { Cookie: `fd_oauth_state=${cookieValue}` },
+      }
+    );
+
+    // The token exchange must carry the identical redirect_uri. If the two
+    // ever drift, GitHub rejects the exchange with
+    // "redirect_uri ... does not match the one used in the authorization request".
+    const exchange = new URLSearchParams(fake.lastTokenBody);
+    assert.equal(
+      exchange.get('redirect_uri'),
+      authorizeRedirectUri,
+      'the token exchange must use the same redirect_uri as the authorization request'
+    );
+    assert.equal(exchange.get('client_id'), 'test-gh-client');
   });
 
   it('redirects to the login page with error=db_unavailable when persistence fails', async (t) => {

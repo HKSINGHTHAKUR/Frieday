@@ -1,0 +1,173 @@
+/**
+ * Frieday GitHub Authentication Design — cinematic dark login surface.
+ *
+ * Scoped to the auth route only: every rule is namespaced under `.fd-auth`
+ * (or a `.fd-auth-*` helper) so the authenticated app keeps the light
+ * design-system tokens untouched (design_system.md §4).
+ *
+ * The palette mirrors the supplied Figma Make export: black/charcoal
+ * foundations, warm orange lighting, and a glass-like auth panel.
+ *
+ * The DESKTOP composition must fit one viewport (no document scrolling) at
+ * 1662x900, 1440x900, 1366x768, 1280x720 and 1024x768. The mechanism is a
+ * flex column of exactly `100dvh` where the header is a FIXED-height row and
+ * the main composition takes the remaining height (`flex: 1; min-height: 0`).
+ * Nothing is clipped with `overflow: hidden` on the document — the content
+ * genuinely fits, and the card tightens its rhythm at short heights.
+ *
+ * Height tiers (registered narrowest-last so the tighter one wins):
+ *   short   (max-height 880px)  — tighter vertical rhythm
+ *   compact (max-height 780px)  — compact card, smaller logo and type
+ */
+
+/* ---------------------------------------------------------------
+   Auth-scoped tokens
+   --------------------------------------------------------------- */
+.fd-auth {
+  --fd-bg: #08090b;
+  --fd-bg-2: #101214;
+  --fd-bg-elev: #151719;
+
+  --fd-ink: #f5f5f5;
+  --fd-ink-2: #b6b8bc;
+  --fd-ink-3: #8a8d93;
+
+  --fd-brand: #ff6a2a;
+  --fd-brand-hi: #ff9b45;
+  --fd-brand-soft: #ffc078;
+
+  --fd-line: #2a2d31;
+
+  --fd-ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --fd-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  color: var(--fd-ink);
+  background: var(--fd-bg);
+  color-scheme: dark;
+}
+
+.fd-auth {
+  font-family:
+    'Geist',
+    'Inter',
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.fd-auth ::selection {
+  background: rgb(255 106 42 / 0.35);
+  color: #fff;
+}
+
+/* ---------------------------------------------------------------
+   Glass panel
+   --------------------------------------------------------------- */
+.fd-auth-glass {
+  position: relative;
+  background:
+    radial-gradient(120% 60% at 0% 0%, rgb(255 106 42 / 0.07), transparent 60%),
+    linear-gradient(180deg, rgb(21 23 25 / 0.78), rgb(11 12 14 / 0.86));
+  border: 1px solid rgb(255 255 255 / 0.07);
+  box-shadow:
+    0 50px 120px -40px rgb(0 0 0 / 0.85),
+    0 0 0 1px rgb(0 0 0 / 0.4),
+    inset 0 1px 0 rgb(255 255 255 / 0.04);
+  backdrop-filter: blur(14px) saturate(125%);
+  -webkit-backdrop-filter: blur(14px) saturate(125%);
+}
+
+/* Warm gradient hairline on two corners. */
+.fd-auth-glass::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    145deg,
+    rgb(255 130 70 / 0.6),
+    rgb(255 255 255 / 0.05) 26%,
+    rgb(255 255 255 / 0.03) 68%,
+    rgb(255 120 60 / 0.42)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.fd-auth-chip {
+  background: linear-gradient(160deg, rgb(24 22 22 / 0.72), rgb(10 10 12 / 0.78));
+  border: 1px solid rgb(255 140 80 / 0.22);
+  box-shadow:
+    0 18px 40px -18px rgb(0 0 0 / 0.9),
+    inset 0 1px 0 rgb(255 255 255 / 0.05);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.fd-auth-warm {
+  background: linear-gradient(100deg, #ffc078 0%, #ff9b45 45%, #ff6a2a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---------------------------------------------------------------
+   Entrances
+   --------------------------------------------------------------- */
+@keyframes fd-auth-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fd-auth-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fd-auth-rise {
+  animation: fd-auth-rise 620ms var(--fd-ease-out-expo) both;
+}
+
+.fd-auth-fade {
+  animation: fd-auth-fade 900ms var(--fd-ease-soft) both;
+}
+
+/* Decorative motion pauses while the tab is hidden (set by LoginPage from the
+   `visibilitychange` signal). */
+.fd-auth[data-paused='true'] .fd-auth-decor,
+.fd-auth[data-paused='true'] .fd-auth-decor * {
+  animation-play-state: paused !important;
+}
+
+/* ---------------------------------------------------------------
+   Reduced motion
+   --------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .fd-auth *,
+  .fd-auth *::before,
+  .fd-auth *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

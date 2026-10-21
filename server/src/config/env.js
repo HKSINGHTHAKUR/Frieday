@@ -21,6 +21,12 @@ const envSchema = z.object({
   GITHUB_CLIENT_SECRET: z.string().default(''),
   GITHUB_SCOPES: z.string().default('read:user repo'),
   GITHUB_CALLBACK_URL: z.string().default('http://localhost:5000/api/auth/github/callback'),
+  // Production must never fall back to a localhost callback: GitHub rejects
+  // the authorization request with "The redirect_uri is not associated with
+  // this application", which surfaces to the user as a broken sign-in. A
+  // localhost callback in production is always a misconfiguration, so it is
+  // rejected at boot (see `assertNoLocalhostCallback` below) rather than
+  // silently accepted.
   // Endpoint overrides exist for local dev / CI test doubles only
   // (T1.1 acceptance: "mocked token endpoint, no live GitHub in CI").
   GITHUB_TOKEN_URL: z.string().url().default('https://github.com/login/oauth/access_token'),
@@ -57,6 +63,42 @@ const envSchema = z.object({
 const REQUIRED_ENV_VARS = ['JWT_SECRET', 'TOKEN_ENC_KEY'];
 
 /**
+ * Whether a URL points at the local machine.
+ * @param {string} url
+ * @returns {boolean}
+ */
+function isLocalhostUrl(url) {
+  if (typeof url !== 'string' || url.length === 0) return false;
+  try {
+    const { hostname } = new URL(url);
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Guard against a production deployment resolving to a localhost callback.
+ *
+ * In production the GitHub OAuth callback MUST be the public origin. If it
+ * is left at the local-development default, GitHub answers the authorization
+ * request with "The redirect_uri is not associated with this application" and
+ * the user cannot sign in. Failing at boot makes the misconfiguration obvious
+ * instead of shipping it.
+ *
+ * @param {z.infer<typeof envSchema>} env the validated config
+ * @throws {Error} named `Invalid env: GITHUB_CALLBACK_URL — ...`
+ */
+function assertNoLocalhostCallback(env) {
+  if (env.NODE_ENV !== 'production') return;
+  if (!isLocalhostUrl(env.GITHUB_CALLBACK_URL)) return;
+  throw new Error(
+    'Invalid env: GITHUB_CALLBACK_URL — must be the public production origin in production ' +
+      '(e.g. https://frieday.onrender.com/api/auth/github/callback), not a localhost URL'
+  );
+}
+
+/**
  * Validate a raw env object. Pure/testable — pass a fake object in tests.
  * @param {NodeJS.ProcessEnv} [source] raw env (defaults to process.env)
  * @returns {z.infer<typeof envSchema>} validated config
@@ -75,6 +117,7 @@ function loadEnv(source = process.env) {
     const name = Array.isArray(first.path) && first.path.length > 0 ? first.path.join('.') : 'env';
     throw new Error(`Invalid env: ${name} — ${first.message}`);
   }
+  assertNoLocalhostCallback(parsed.data);
   return parsed.data;
 }
 
@@ -91,4 +134,4 @@ function getEnv() {
   return cached;
 }
 
-module.exports = { loadEnv, getEnv, REQUIRED_ENV_VARS };
+module.exports = { loadEnv, getEnv, REQUIRED_ENV_VARS, isLocalhostUrl, assertNoLocalhostCallback };

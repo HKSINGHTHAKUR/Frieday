@@ -68,7 +68,7 @@ describe('App gate — authentication initialization (T1.3)', () => {
     apiMe(meUser);
     renderApp('/dashboard');
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Overview', level: 1 })).toBeTruthy());
-    expect(screen.queryByRole('heading', { name: 'Sign in', level: 2 })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Continue with GitHub' })).toBeNull();
     expect(apiGet).toHaveBeenCalledWith('/api/auth/me');
   });
 
@@ -79,7 +79,8 @@ describe('App gate — authentication initialization (T1.3)', () => {
     });
     apiGet.mockRejectedValue(err);
     renderApp('/dashboard');
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Sign in', level: 2 })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toBeTruthy());
+    expect(screen.getByRole('button', { name: 'Continue with GitHub' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Overview', level: 1 })).toBeNull();
   });
 
