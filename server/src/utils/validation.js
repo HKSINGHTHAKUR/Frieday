@@ -27,6 +27,12 @@ const dashboardQuerySchema = z.object({
 
 /**
  * Repositories list query schema.
+ *
+ * `includeThemes` is opt-in (default false). The per-repository theme map is
+ * by far the largest part of the response (measured: 85% of the payload for a
+ * 4-repo page, 94% for a 50-repo page). A consumer that only needs the
+ * repository list — the Timeline page's repository filter — should not pay
+ * for it. The Repositories page asks for it explicitly.
  */
 const reposListQuerySchema = z.object({
   sort: z
@@ -37,6 +43,13 @@ const reposListQuerySchema = z.object({
     .default('activity'),
   limit: z.coerce.number().int().min(1).max(50).optional().default(20),
   cursor: z.string().optional(),
+  includeThemes: z
+    .enum(['true', 'false'], {
+      errorMap: () => ({ message: 'includeThemes must be true or false' }),
+    })
+    .optional()
+    .default('false')
+    .transform((v) => v === 'true'),
 });
 
 /**

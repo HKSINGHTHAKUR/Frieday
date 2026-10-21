@@ -234,7 +234,9 @@ function RecentActivity({ data }) {
         title="Commits"
         items={(commits ?? []).map((c) => ({
           key: c.sha,
-          primary: c.messageHeadline ?? c.messageFull ?? '',
+          // The API returns the headline only — the commit body is never
+          // exposed. A commit with no headline shows an honest placeholder.
+          primary: c.messageHeadline || '(no commit message)',
           meta: c.authoredAt,
         }))}
       />

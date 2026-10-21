@@ -17,6 +17,10 @@ const assert = require('node:assert/strict');
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test-jwt-secret-16+';
 process.env.TOKEN_ENC_KEY = 'ab'.repeat(32);
+// Deterministic, isolated local test database. Without an explicit target the
+// default `frieday` database is rejected by the pre-flight guard and every
+// DB-backed test below would silently SKIP.
+require('./helpers/dbTestTarget').useTestDatabase('frieday_test_repos_routes');
 
 const SYNTHETIC_GITHUB_ID = 987654321;
 const SYNTHETIC_OTHER_GITHUB_ID = 987654322; // owns a repo the first user must NOT see (404)
@@ -42,22 +46,18 @@ describe('GET /api/repos cursor contract (T9 regression)', () => {
     process.env.TOKEN_ENC_KEY = 'ab'.repeat(32);
 
     const db = require('../src/config/db');
+    const { connectForTest } = require('./helpers/dbTestTarget');
     try {
+      // INC-1 guard (pre-flight): the resolved target is validated BEFORE any
+      // connection attempt, so a production-targeting MONGO_URI never opens a
+      // socket to production.
       await Promise.race([
-        db.connectDb(),
+        connectForTest(),
         new Promise((_resolve, reject) => setTimeout(() => reject(new Error('db wait timeout')), 5000)),
       ]);
       dbUp = db.dbStatus() === 'up';
     } catch {
       dbUp = false;
-    }
-    if (dbUp) {
-      // INC-1 guard: only run against an isolated local test database.
-      const host = require('mongoose').connection.host || '';
-      const dbName = require('mongoose').connection.name || '';
-      if (!(host === '127.0.0.1' || host === 'localhost') || !/test/i.test(dbName)) {
-        dbUp = false;
-      }
     }
     if (!dbUp) return;
 

@@ -5,7 +5,12 @@
 const mongoose = require('mongoose');
 const { STATUS_BY_CODE } = require('../../middleware/errorHandler');
 const { decodeCursor, buildCursorFilter, buildSort, encodeCursor } = require('../../utils/pagination');
-const { getRepoHealthForIds, getRecentActivity, getMiniTimeline } = require('./repos.service');
+const {
+  getRepoHealthForIds,
+  getCommitsByRepoIds,
+  getRecentActivity,
+  getMiniTimeline,
+} = require('./repos.service');
 const Repository = require('../../models/Repository');
 
 function sendError(req, res, err) {
@@ -30,7 +35,7 @@ function sendError(req, res, err) {
  * List repositories with cursor pagination.
  */
 async function listReposHandler(req, res) {
-  const { sort: sortParam, limit, cursor } = req.query;
+  const { sort: sortParam, limit, cursor, includeThemes } = req.query;
   const userId = req.user.id;
 
   try {
@@ -47,13 +52,30 @@ async function listReposHandler(req, res) {
 
     const repos = await fetchRepos(baseQuery, cursorFilter, limit, sortOrder);
     const { repos: trimmedRepos, nextCursor } = buildPaginatedResponse(repos, limit);
-    const repoHealthMap = await getRepoHealthForIds(
-      userId,
-      trimmedRepos.map((r) => r._id.toString())
-    );
+    const repoIds = trimmedRepos.map((r) => r._id.toString());
+
+    // ONE commit read for the whole page. The bounded per-repository window
+    // serves both consumers: the health rule (most recent commit date) and
+    // the Phase 10.2 theme map. A busy repository cannot consume a quiet
+    // repository's budget, because the window is applied per repository.
+    const commitsByRepo = await getCommitsByRepoIds(userId, repoIds);
+    const repoHealthMap = await getRepoHealthForIds(userId, repoIds, commitsByRepo);
     const items = buildRepoItems(trimmedRepos, repoHealthMap);
 
-    return res.json({ items, nextCursor, hasMore: !!nextCursor });
+    // Phase 10.2 — per-repository commit themes. One map for the whole page,
+    // so the frontend never issues a request per repository. The commits are
+    // user-scoped by the same userId filter as the health computation.
+    //
+    // The map is OPT-IN (`includeThemes=true`): it is the largest part of the
+    // response, and a consumer that only needs the repository list (the
+    // Timeline page's repository filter) should not pay for it.
+    if (!includeThemes) {
+      return res.json({ items, nextCursor, hasMore: !!nextCursor });
+    }
+
+    const repoThemes = buildRepoThemesMap(trimmedRepos, commitsByRepo);
+
+    return res.json({ items, nextCursor, hasMore: !!nextCursor, repoThemes });
   } catch (err) {
     return sendError(req, res, err);
   }
@@ -97,6 +119,28 @@ function buildPaginatedResponse(repos, limit) {
     return { repos: repos.slice(0, limit), nextCursor };
   }
   return { repos, nextCursor: null };
+}
+
+/**
+ * Build the Phase 10.2 `repoThemes` map for the repositories on this page.
+ *
+ * One map keyed by repository id, so the frontend can associate a repository
+ * with its theme analysis without one request per repository.
+ *
+ * Every repository on the page gets an entry, including repositories with no
+ * commits (an empty payload), so the map is a complete and stable index.
+ *
+ * @param {Array} repos - repository docs for this page
+ * @param {Map<string, Array>} commitsByRepo - user-scoped commits grouped by repo id
+ * @returns {Object} map of repoId -> per-repo theme payload
+ */
+function buildRepoThemesMap(repos, commitsByRepo) {
+  const { computeRepoThemesMap } = require('../../services/intelligence/themes');
+  const commits = [];
+  for (const list of commitsByRepo.values()) {
+    if (Array.isArray(list)) commits.push(...list);
+  }
+  return computeRepoThemesMap({ commits, repositories: repos });
 }
 
 function buildRepoItems(repos, repoHealthMap) {

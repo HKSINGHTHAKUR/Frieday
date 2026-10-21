@@ -107,26 +107,21 @@ describe('GET /api/auth/github + /callback (tasks.md T1.1)', () => {
     // Point MongoDB at the isolated local test database (never the live
     // deployment URI from .env). Required so the INC-1 guard accepts the
     // connection and dbUp reflects real local availability.
-    process.env.MONGO_URI = 'mongodb://127.0.0.1:27017/frieday_test_configdb';
+    require('./helpers/dbTestTarget').useTestDatabase('frieday_test_configdb');
 
     const db = require('../src/config/db');
+    const { connectForTest } = require('./helpers/dbTestTarget');
     try {
+      // INC-1 guard (pre-flight): the resolved target is validated BEFORE any
+      // connection attempt, so a production-targeting MONGO_URI never opens a
+      // socket to production.
       await Promise.race([
-        db.connectDb(),
+        connectForTest(),
         new Promise((_resolve, reject) => setTimeout(() => reject(new Error('db wait timeout')), 5000)),
       ]);
       dbUp = db.dbStatus() === 'up';
     } catch {
       dbUp = false;
-    }
-    if (dbUp) {
-      // INC-1 guard: these suites create and delete users — only run against
-      // an isolated local test database, never a live deployment URI.
-      const host = require('mongoose').connection.host || '';
-      const dbName = require('mongoose').connection.name || '';
-      if (!(host === '127.0.0.1' || host === 'localhost') || !/test/i.test(dbName)) {
-        dbUp = false;
-      }
     }
 
     const { createApp } = require('../src/app');
@@ -509,22 +504,18 @@ describe('User.upsertOne', () => {
 
   before(async () => {
     const db = require('../src/config/db');
+    const { connectForTest } = require('./helpers/dbTestTarget');
     try {
+      // INC-1 guard (pre-flight): the resolved target is validated BEFORE any
+      // connection attempt, so a production-targeting MONGO_URI never opens a
+      // socket to production.
       await Promise.race([
-        db.connectDb(),
+        connectForTest(),
         new Promise((_resolve, reject) => setTimeout(() => reject(new Error('db wait timeout')), 5000)),
       ]);
       dbUp = db.dbStatus() === 'up';
     } catch {
       dbUp = false;
-    }
-    if (dbUp) {
-      // INC-1 guard: only run against an isolated local test database.
-      const host = require('mongoose').connection.host || '';
-      const dbName = require('mongoose').connection.name || '';
-      if (!(host === '127.0.0.1' || host === 'localhost') || !/test/i.test(dbName)) {
-        dbUp = false;
-      }
     }
   });
 

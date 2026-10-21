@@ -11,7 +11,11 @@ const {
   THEME_RULES_VERSION,
   THEME_OUTPUT_VERSION,
   THEME_NAMES,
+  compareThemeItems,
   computeThemes,
+  computeRepoThemes,
+  computeRepoThemesMap,
+  pickTopTheme,
   classifyHeadline,
   tokenize,
   parseConventionalPrefix,
@@ -472,6 +476,370 @@ describe('themes.js (Phase 10.1)', () => {
       const out = computeThemes({ commits: commits(50, 'some random words here') });
       assert.deepEqual(out.items, []);
       assert.equal(out.unclassified, 50);
+    });
+  });
+  describe('computeRepoThemes — per-repository breakdown (Phase 10.2)', () => {
+    it('analyses only the commits of the requested repository', () => {
+      const all = [
+        { sha: 'a1', repoId: 'r1', messageHeadline: 'fix: crash in parser' },
+        { sha: 'a2', repoId: 'r1', messageHeadline: 'fix: another crash' },
+        { sha: 'b1', repoId: 'r2', messageHeadline: 'feat: other repo work' },
+      ];
+      const out = computeRepoThemes({ commits: all, repositories: REPOS, repoId: 'r1' });
+
+      assert.equal(out.totalCommits, 2, 'only r1 commits are counted');
+      assert.equal(out.themedCommits, 2);
+      assert.equal(out.items.length, 1);
+      assert.equal(out.items[0].theme, 'Bug fix');
+      assert.equal(out.items[0].commitCount, 2);
+      // The other repository must not appear anywhere.
+      assert.ok(!JSON.stringify(out).includes('other repo work'));
+      assert.ok(!JSON.stringify(out).includes('me/beta'));
+    });
+
+    it('uses the per-repo themed-commit denominator', () => {
+      const all = [
+        { sha: 'a1', repoId: 'r1', messageHeadline: 'fix: crash' },
+        { sha: 'a2', repoId: 'r1', messageHeadline: 'feat: add thing' },
+        { sha: 'a3', repoId: 'r1', messageHeadline: 'chore: bump deps' },
+      ];
+      const out = computeRepoThemes({ commits: all, repositories: REPOS, repoId: 'r1' });
+
+      assert.equal(out.themedCommits, 2, 'denominator counts themed commits only');
+      assert.equal(out.noise, 1);
+      const fix = out.items.find((i) => i.theme === 'Bug fix');
+      const feat = out.items.find((i) => i.theme === 'Feature');
+      assert.equal(fix.share, 0.5);
+      assert.equal(feat.share, 0.5);
+      const total = out.items.reduce((sum, i) => sum + i.share, 0);
+      assert.ok(Math.abs(total - 1) < 0.001, 'shares must sum to 1');
+    });
+
+    it('reconciles counts per repository', () => {
+      const all = [
+        { sha: 'a1', repoId: 'r1', messageHeadline: 'fix: crash' },
+        { sha: 'a2', repoId: 'r1', messageHeadline: 'chore: bump' },
+        { sha: 'a3', repoId: 'r1', messageHeadline: null },
+        { sha: 'a4', repoId: 'r1', messageHeadline: 'random text here' },
+      ];
+      const out = computeRepoThemes({ commits: all, repositories: REPOS, repoId: 'r1' });
+      assert.equal(out.totalCommits, out.themedCommits + out.unclassified + out.noMessage + out.noise);
+      assert.equal(out.totalCommits, 4);
+    });
+
+    it('an empty repository yields an empty payload, never a fabricated theme', () => {
+      const out = computeRepoThemes({ commits: [], repositories: REPOS, repoId: 'r1' });
+      assert.equal(out.totalCommits, 0);
+      assert.equal(out.themedCommits, 0);
+      assert.deepEqual(out.items, []);
+      assert.equal(out.topTheme, null);
+    });
+
+    it('a missing repoId yields an empty payload', () => {
+      const out = computeRepoThemes({ commits: commits(3, 'fix: crash'), repositories: REPOS });
+      assert.equal(out.totalCommits, 0);
+      assert.deepEqual(out.items, []);
+    });
+
+    it('per-repo confidence does not borrow the cross-repo 2-repository tier', () => {
+      // 10 commits in ONE repo: the cross-repo scope would be Medium (needs
+      // >=2 repos for High); the per-repo scope reaches High on commit count
+      // alone, because a single repository cannot corroborate across repos.
+      const out = computeRepoThemes({
+        commits: commits(10, 'fix: crash', ['r1']),
+        repositories: REPOS,
+        repoId: 'r1',
+      });
+      assert.equal(out.items[0].confidence, 'High');
+
+      const cross = computeThemes({ commits: commits(10, 'fix: crash', ['r1']), repositories: REPOS });
+      assert.equal(cross.items[0].confidence, 'Medium', 'cross-repo scope still requires 2 repos');
+    });
+
+    it('never exposes commit bodies', () => {
+      const out = computeRepoThemes({
+        commits: [{ sha: 'a1', repoId: 'r1', messageHeadline: 'fix: crash', messageFull: 'SECRET BODY' }],
+        repositories: REPOS,
+        repoId: 'r1',
+      });
+      assert.ok(!JSON.stringify(out).includes('SECRET BODY'));
+    });
+  });
+
+  describe('pickTopTheme — deterministic top-theme selection (Phase 10.2)', () => {
+    it('returns null for an empty item list', () => {
+      assert.equal(pickTopTheme([]), null);
+      assert.equal(pickTopTheme(null), null);
+    });
+
+    it('picks the highest-count theme', () => {
+      const top = pickTopTheme([
+        { theme: 'Feature', commitCount: 5, share: 0.5, confidence: 'High' },
+        { theme: 'Bug fix', commitCount: 9, share: 0.45, confidence: 'High' },
+      ]);
+      assert.equal(top.theme, 'Bug fix');
+      assert.equal(top.commitCount, 9);
+    });
+
+    it('breaks ties by the documented theme priority (not input order)', () => {
+      const a = [
+        { theme: 'Feature', commitCount: 4, share: 0.5, confidence: 'Medium' },
+        { theme: 'Bug fix', commitCount: 4, share: 0.5, confidence: 'Medium' },
+      ];
+      const b = [...a].reverse();
+      assert.equal(pickTopTheme(a).theme, 'Bug fix', 'Bug fix outranks Feature in THEME_PRIORITY');
+      assert.equal(pickTopTheme(b).theme, 'Bug fix', 'tie-break is order-independent');
+    });
+
+    it('breaks ties by priority even when a lower-priority theme has a higher share', () => {
+      const top = pickTopTheme([
+        { theme: 'Feature', commitCount: 5, share: 0.6, confidence: 'High' },
+        { theme: 'Security', commitCount: 5, share: 0.4, confidence: 'High' },
+      ]);
+      assert.equal(top.theme, 'Security', 'Security outranks Feature in THEME_PRIORITY');
+    });
+  });
+
+  describe('computeRepoThemesMap — one map for the whole page (Phase 10.2)', () => {
+    it('gives every repository an entry, including empty ones', () => {
+      const commitsFor = [
+        { sha: 'a1', repoId: 'r1', messageHeadline: 'fix: crash' },
+        { sha: 'b1', repoId: 'r2', messageHeadline: 'feat: other' },
+      ];
+      const map = computeRepoThemesMap({ commits: commitsFor, repositories: REPOS });
+
+      assert.ok(Object.prototype.hasOwnProperty.call(map, 'r1'));
+      assert.ok(Object.prototype.hasOwnProperty.call(map, 'r2'));
+      assert.equal(map.r1.themedCommits, 1);
+      assert.equal(map.r2.themedCommits, 1);
+      assert.equal(map.r1.topTheme.theme, 'Bug fix');
+      assert.equal(map.r2.topTheme.theme, 'Feature');
+    });
+
+    it('a repository with no commits gets an empty entry with a null topTheme', () => {
+      const map = computeRepoThemesMap({
+        commits: [{ sha: 'a1', repoId: 'r1', messageHeadline: 'fix: crash' }],
+        repositories: REPOS,
+      });
+      assert.equal(map.r2.totalCommits, 0);
+      assert.equal(map.r2.topTheme, null);
+      assert.deepEqual(map.r2.items, []);
+    });
+
+    it('skips malformed repository entries without crashing', () => {
+      const map = computeRepoThemesMap({
+        commits: [{ sha: 'a1', repoId: 'r1', messageHeadline: 'fix: crash' }],
+        repositories: [null, undefined, { fullName: 'no/id' }, ...REPOS],
+      });
+      assert.equal(Object.keys(map).length, 2, 'only well-formed repos get entries');
+      assert.ok(Object.prototype.hasOwnProperty.call(map, 'r1'));
+    });
+
+    it('commits with a missing repoId are ignored', () => {
+      const map = computeRepoThemesMap({
+        commits: [
+          { sha: 'a1', messageHeadline: 'fix: crash' },
+          { sha: 'a2', repoId: 'r1', messageHeadline: 'fix: crash' },
+        ],
+        repositories: REPOS,
+      });
+      assert.equal(map.r1.totalCommits, 1, 'the repoId-less commit must not be counted');
+    });
+  });
+
+  describe('canonical ranking — the chip and the drill-down agree (Phase 10.2)', () => {
+    it('topTheme IS the first displayed item', () => {
+      // The defect: `pickTopTheme` broke a count tie by THEME_PRIORITY
+      // (Testing before Feature), while the displayed list broke the same tie
+      // alphabetically (Feature before Testing). The chip therefore said
+      // "Testing" while the panel's first row said "Feature".
+      const docs = [
+        { sha: 'a1', repoId: 'r1', messageHeadline: 'feat: add thing' },
+        { sha: 'a2', repoId: 'r1', messageHeadline: 'test: cover thing' },
+      ];
+      const out = computeRepoThemes({ commits: docs, repositories: REPOS, repoId: 'r1' });
+
+      assert.ok(out.topTheme, 'a top theme must be selected');
+      assert.equal(
+        out.topTheme.theme,
+        out.items[0].theme,
+        'the chip must name the SAME theme as the first displayed row'
+      );
+      assert.equal(out.topTheme.commitCount, out.items[0].commitCount);
+      assert.equal(out.topTheme.share, out.items[0].share);
+      assert.equal(out.topTheme.confidence, out.items[0].confidence);
+    });
+
+    it('the agreement holds for every theme combination', () => {
+      const headlines = ['fix: a', 'feat: b', 'test: c', 'docs: d', 'refactor: e', 'perf: f', 'security: g'];
+      // Every ordered pair of themes, each once — the confidence tiers differ
+      // (Low/Medium), so the two rankings could previously diverge.
+      for (const a of headlines) {
+        for (const b of headlines) {
+          const out = computeRepoThemes({
+            commits: [
+              { sha: 'x1', repoId: 'r1', messageHeadline: a },
+              { sha: 'x2', repoId: 'r1', messageHeadline: b },
+            ],
+            repositories: REPOS,
+            repoId: 'r1',
+          });
+          assert.equal(out.topTheme.theme, out.items[0].theme, `chip/panel mismatch for "${a}" + "${b}"`);
+        }
+      }
+    });
+
+    it('the ranking does not depend on input order', () => {
+      const docs = [
+        { sha: 'a1', repoId: 'r1', messageHeadline: 'feat: add thing' },
+        { sha: 'a2', repoId: 'r1', messageHeadline: 'test: cover thing' },
+        { sha: 'a3', repoId: 'r1', messageHeadline: 'fix: repair thing' },
+      ];
+      const forward = computeRepoThemes({ commits: docs, repositories: REPOS, repoId: 'r1' });
+      const reversed = computeRepoThemes({
+        commits: [...docs].reverse(),
+        repositories: REPOS,
+        repoId: 'r1',
+      });
+      const shuffled = computeRepoThemes({
+        commits: [docs[1], docs[2], docs[0]],
+        repositories: REPOS,
+        repoId: 'r1',
+      });
+
+      assert.deepEqual(forward, reversed);
+      assert.deepEqual(forward, shuffled);
+      assert.equal(forward.topTheme.theme, forward.items[0].theme);
+    });
+
+    it('counts, confidence and shares stay internally consistent', () => {
+      const docs = [
+        { sha: 'a1', repoId: 'r1', messageHeadline: 'fix: a' },
+        { sha: 'a2', repoId: 'r1', messageHeadline: 'fix: b' },
+        { sha: 'a3', repoId: 'r1', messageHeadline: 'feat: c' },
+        { sha: 'a4', repoId: 'r1', messageHeadline: 'chore: bump' },
+        { sha: 'a5', repoId: 'r1', messageHeadline: null },
+        { sha: 'a6', repoId: 'r1', messageHeadline: 'random words here' },
+      ];
+      const out = computeRepoThemes({ commits: docs, repositories: REPOS, repoId: 'r1' });
+
+      assert.equal(out.totalCommits, 6);
+      assert.equal(out.themedCommits, 3);
+      assert.equal(out.noise, 1);
+      assert.equal(out.noMessage, 1);
+      assert.equal(out.unclassified, 1);
+      assert.equal(
+        out.totalCommits,
+        out.themedCommits + out.unclassified + out.noMessage + out.noise,
+        'the buckets must reconcile'
+      );
+
+      const sum = out.items.reduce((s, i) => s + i.share, 0);
+      assert.ok(Math.abs(sum - 1) < 0.001, 'shares must sum to 1 over the themed denominator');
+      for (const item of out.items) {
+        assert.ok(Math.abs(item.share - item.commitCount / out.themedCommits) < 0.002);
+        assert.ok(['High', 'Medium', 'Low'].includes(item.confidence));
+      }
+      // The item list is sorted by the canonical comparator.
+      const sorted = [...out.items].sort(compareThemeItems);
+      assert.deepEqual(
+        out.items.map((i) => i.theme),
+        sorted.map((i) => i.theme)
+      );
+    });
+  });
+
+  describe('malformed commit records are handled safely (Phase 10.2)', () => {
+    it('a null commit in the middle of valid records does not crash', () => {
+      const docs = [
+        { sha: 'a1', repoId: 'r1', messageHeadline: 'fix: first' },
+        null,
+        { sha: 'a2', repoId: 'r1', messageHeadline: 'fix: second' },
+      ];
+      const out = computeRepoThemes({ commits: docs, repositories: REPOS, repoId: 'r1' });
+      assert.equal(out.totalCommits, 2, 'the malformed record is not counted as a commit');
+      assert.equal(out.themedCommits, 2, 'its valid siblings are still processed');
+      assert.equal(out.items[0].commitCount, 2);
+    });
+
+    it('undefined, non-object and empty records are skipped', () => {
+      const out = computeRepoThemes({
+        commits: [
+          undefined,
+          null,
+          'not-a-commit',
+          42,
+          [],
+          { sha: 'a1', repoId: 'r1', messageHeadline: 'fix: valid' },
+        ],
+        repositories: REPOS,
+        repoId: 'r1',
+      });
+      assert.equal(out.totalCommits, 1, 'only the one valid record is counted');
+      assert.equal(out.themedCommits, 1);
+      assert.equal(out.items[0].theme, 'Bug fix');
+    });
+
+    it('a commit with no message fields lands in the noMessage bucket', () => {
+      const out = computeRepoThemes({
+        commits: [{ sha: 'a1', repoId: 'r1' }],
+        repositories: REPOS,
+        repoId: 'r1',
+      });
+      assert.equal(out.totalCommits, 1);
+      assert.equal(out.noMessage, 1);
+      assert.equal(out.themedCommits, 0);
+      assert.deepEqual(out.items, []);
+      assert.equal(out.topTheme, null, 'no chip may be derived from an empty payload');
+    });
+
+    it('empty and noise-only messages are counted, never themed', () => {
+      const out = computeRepoThemes({
+        commits: [
+          { sha: 'a1', repoId: 'r1', messageHeadline: '' },
+          { sha: 'a2', repoId: 'r1', messageHeadline: '   ' },
+          { sha: 'a3', repoId: 'r1', messageHeadline: 'chore: bump deps' },
+          { sha: 'a4', repoId: 'r1', messageHeadline: 'Merge pull request #1' },
+        ],
+        repositories: REPOS,
+        repoId: 'r1',
+      });
+      assert.equal(out.totalCommits, 4);
+      assert.equal(out.noMessage, 2);
+      assert.equal(out.noise, 2);
+      assert.equal(out.themedCommits, 0);
+      assert.deepEqual(out.items, []);
+    });
+
+    it('the aggregate counters stay correct after malformed records', () => {
+      const out = computeRepoThemes({
+        commits: [
+          { sha: 'a1', repoId: 'r1', messageHeadline: 'fix: one' },
+          null,
+          { sha: 'a2', repoId: 'r1', messageHeadline: 'feat: two' },
+          undefined,
+          { sha: 'a3', repoId: 'r1', messageHeadline: 'chore: bump' },
+          { sha: 'a4', repoId: 'r1' },
+        ],
+        repositories: REPOS,
+        repoId: 'r1',
+      });
+      assert.equal(out.totalCommits, 4);
+      assert.equal(out.themedCommits, 2);
+      assert.equal(out.noise, 1);
+      assert.equal(out.noMessage, 1);
+      assert.equal(out.totalCommits, out.themedCommits + out.unclassified + out.noMessage + out.noise);
+    });
+
+    it('a repository with only malformed records produces an empty, chip-free payload', () => {
+      const out = computeRepoThemes({
+        commits: [null, undefined, { sha: 'a1', repoId: 'r1' }],
+        repositories: REPOS,
+        repoId: 'r1',
+      });
+      assert.equal(out.topTheme, null);
+      assert.equal(out.themedCommits, 0);
+      assert.deepEqual(out.items, []);
     });
   });
 });

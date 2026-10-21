@@ -146,14 +146,83 @@ function classifyHeadline(headline) {
 /**
  * Determine confidence for a theme bucket, reusing the established
  * intelligence semantics (focus.js / insights-core.js).
+ *
+ * Scope matters: the cross-repo "High" tier additionally requires corroboration
+ * from >= 2 repositories. A per-repository breakdown cannot claim that, so the
+ * per-repo scope uses the commit-count dimension only — it never borrows the
+ * cross-repo tier.
  * @param {{ commits: number, repos: number }} data
+ * @param {'cross-repo'|'per-repo'} [scope]
  * @returns {'High'|'Medium'|'Low'}
  */
-function computeThemeConfidence(data) {
+function computeThemeConfidence(data, scope = 'cross-repo') {
   const { HIGH_MIN_COMMITS, HIGH_MIN_REPOS, MEDIUM_MIN_COMMITS } = THEME_CONFIDENCE_THRESHOLDS;
+  if (scope === 'per-repo') {
+    if (data.commits >= HIGH_MIN_COMMITS) return 'High';
+    if (data.commits >= MEDIUM_MIN_COMMITS) return 'Medium';
+    return 'Low';
+  }
   if (data.commits >= HIGH_MIN_COMMITS && data.repos >= HIGH_MIN_REPOS) return 'High';
   if (data.commits >= MEDIUM_MIN_COMMITS) return 'Medium';
   return 'Low';
+}
+
+/**
+ * Canonical theme ranking — the ONE rule used for the displayed order of the
+ * theme list AND for the top-theme chip.
+ *
+ * Order:
+ *   1. confidence desc (High → Medium → Low)
+ *   2. commit count desc
+ *   3. THEME_PRIORITY asc (Bug fix → Security → Performance → Testing →
+ *      Documentation → Refactor → Feature) — the documented conflict-
+ *      resolution order, so a tie resolves by the same taxonomy the
+ *      classifier itself uses
+ *   4. theme name asc (a total order, so the result never depends on input
+ *      or database result order)
+ *
+ * The chip and the first row of the drill-down therefore always agree: both
+ * are this comparator applied to the same item list.
+ */
+const CONFIDENCE_ORDER = { High: 3, Medium: 2, Low: 1 };
+
+const THEME_PRIORITY_INDEX = new Map(THEME_PRIORITY.map((theme, index) => [theme, index]));
+
+/**
+ * Compare two theme items by the canonical ranking.
+ * @param {{theme: string, commitCount: number, confidence: string}} a
+ * @param {{theme: string, commitCount: number, confidence: string}} b
+ * @returns {number} negative when `a` ranks first
+ */
+function compareThemeItems(a, b) {
+  const ca = CONFIDENCE_ORDER[a.confidence] || 0;
+  const cb = CONFIDENCE_ORDER[b.confidence] || 0;
+  if (ca !== cb) return cb - ca;
+  if (a.commitCount !== b.commitCount) return b.commitCount - a.commitCount;
+  const pa = THEME_PRIORITY_INDEX.has(a.theme) ? THEME_PRIORITY_INDEX.get(a.theme) : Number.MAX_SAFE_INTEGER;
+  const pb = THEME_PRIORITY_INDEX.has(b.theme) ? THEME_PRIORITY_INDEX.get(b.theme) : Number.MAX_SAFE_INTEGER;
+  if (pa !== pb) return pa - pb;
+  return a.theme.localeCompare(b.theme);
+}
+
+/**
+ * Deterministic top-theme selection for a set of theme items.
+ *
+ * The top theme is the FIRST item under the canonical ranking
+ * (`compareThemeItems`) — the same rule that orders the displayed list, so the
+ * chip and the drill-down can never contradict each other.
+ * @param {Array<{theme: string, commitCount: number, share: number, confidence: string}>} items
+ * @returns {{ theme: string, commitCount: number, share: number, confidence: string }|null}
+ */
+function pickTopTheme(items) {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const top = [...items].sort(compareThemeItems)[0];
+  return {
+    theme: top.theme,
+    commitCount: top.commitCount,
+    share: top.share,
+    confidence: top.confidence,
+  };
 }
 
 /**
@@ -162,9 +231,10 @@ function computeThemeConfidence(data) {
  * @param {Object} opts
  * @param {Array} opts.commits - Commit docs with messageHeadline, sha, repoId
  * @param {Array} [opts.repositories] - Repository docs with _id, fullName
+ * @param {'cross-repo'|'per-repo'} [opts.scope] - confidence semantics
  * @returns {Object} theme payload (see module header for the shape)
  */
-function computeThemes({ commits = [], repositories = [] } = {}) {
+function computeThemes({ commits = [], repositories = [], scope = 'cross-repo' } = {}) {
   const repoNames = new Map();
   for (const repo of repositories) {
     if (repo && repo._id) {
@@ -179,7 +249,11 @@ function computeThemes({ commits = [], repositories = [] } = {}) {
   let totalCommits = 0;
 
   for (const commit of commits) {
-    if (!commit) continue;
+    // A malformed record (null / undefined / not an object) is skipped, not
+    // counted and not classified: it is an invalid record, not a commit with
+    // no message. It must never crash the aggregation of its valid siblings,
+    // and it must never be invented into a theme.
+    if (!commit || typeof commit !== 'object') continue;
     totalCommits += 1;
 
     const headline = commit.messageHeadline;
@@ -235,7 +309,7 @@ function computeThemes({ commits = [], repositories = [] } = {}) {
     const repoNameList = [...entry.repos].sort().slice(0, THEME_EVIDENCE_LIMITS.MAX_REPO_NAMES);
     items.push({
       theme,
-      confidence: computeThemeConfidence({ commits: entry.commits, repos: entry.repos.size }),
+      confidence: computeThemeConfidence({ commits: entry.commits, repos: entry.repos.size }, scope),
       commitCount: entry.commits,
       share: themedCommits > 0 ? Math.round((entry.commits / themedCommits) * 1000) / 1000 : 0,
       evidence: {
@@ -246,15 +320,9 @@ function computeThemes({ commits = [], repositories = [] } = {}) {
     });
   }
 
-  // Stable ordering: confidence desc, then commit count desc, then name asc.
-  const confidenceOrder = { High: 3, Medium: 2, Low: 1 };
-  items.sort((a, b) => {
-    const ca = confidenceOrder[a.confidence] || 0;
-    const cb = confidenceOrder[b.confidence] || 0;
-    if (ca !== cb) return cb - ca;
-    if (a.commitCount !== b.commitCount) return b.commitCount - a.commitCount;
-    return a.theme.localeCompare(b.theme);
-  });
+  // Canonical ordering — the SAME comparator that selects the top theme, so
+  // the chip and the first displayed row can never disagree.
+  items.sort(compareThemeItems);
 
   return {
     version: THEME_OUTPUT_VERSION,
@@ -265,14 +333,108 @@ function computeThemes({ commits = [], repositories = [] } = {}) {
     noMessage,
     noise,
     items,
+    topTheme: pickTopTheme(items),
   };
+}
+
+/**
+ * Compute commit themes for a SINGLE repository.
+ *
+ * Mirrors `focus.js` `computeRepoFocusTags` exactly: the same classifier,
+ * the same taxonomy, the same precedence — only the commit set is filtered
+ * to one repository. No second taxonomy, no divergent rules.
+ *
+ * Malformed commit records (null / undefined / not an object) are skipped
+ * here, exactly as `computeThemes` skips them, so one bad record can never
+ * crash a repository's aggregation or abort its valid siblings.
+ *
+ * @param {Object} opts
+ * @param {Array} opts.commits - Commit docs (any repos; filtered here)
+ * @param {Array} [opts.repositories] - Repository docs with _id, fullName
+ * @param {string} opts.repoId - the repository to analyse
+ * @returns {Object} per-repo theme payload
+ */
+function computeRepoThemes({ commits = [], repositories = [], repoId } = {}) {
+  if (!repoId) {
+    return emptyThemePayload();
+  }
+  const key = repoId.toString();
+  const filteredCommits = commits.filter(
+    (c) => c && typeof c === 'object' && c.repoId && c.repoId.toString() === key
+  );
+  const filteredRepos = repositories.filter((r) => r && r._id && r._id.toString() === key);
+  return computeThemes({
+    commits: filteredCommits,
+    repositories: filteredRepos,
+    scope: 'per-repo',
+  });
+}
+
+/**
+ * An empty theme payload — used for repositories with no commits, so every
+ * repository in the response has a well-formed entry (no undefined holes).
+ * @returns {Object}
+ */
+function emptyThemePayload() {
+  return {
+    version: THEME_OUTPUT_VERSION,
+    rulesVersion: THEME_RULES_VERSION,
+    totalCommits: 0,
+    themedCommits: 0,
+    unclassified: 0,
+    noMessage: 0,
+    noise: 0,
+    items: [],
+    topTheme: null,
+  };
+}
+
+/**
+ * Compute the per-repository theme map for a set of repositories.
+ *
+ * One map, one response — the frontend never issues a request per repository.
+ * Every requested repository gets an entry, including repositories with no
+ * commits (an empty payload), so the map is a complete, stable index.
+ *
+ * The commits are grouped by repository ONCE, so the cost is linear in the
+ * number of commits rather than linear in commits x repositories.
+ *
+ * @param {Object} opts
+ * @param {Array} opts.commits - user-scoped commit docs
+ * @param {Array} opts.repositories - repository docs with _id, fullName
+ * @returns {Object} map of repoId -> per-repo theme payload
+ */
+function computeRepoThemesMap({ commits = [], repositories = [] } = {}) {
+  const byRepo = new Map();
+  for (const commit of commits) {
+    if (!commit || typeof commit !== 'object' || !commit.repoId) continue;
+    const key = commit.repoId.toString();
+    if (!byRepo.has(key)) byRepo.set(key, []);
+    byRepo.get(key).push(commit);
+  }
+
+  const map = {};
+  for (const repo of repositories) {
+    if (!repo || !repo._id) continue;
+    const key = repo._id.toString();
+    map[key] = computeThemes({
+      commits: byRepo.get(key) ?? [],
+      repositories: [repo],
+      scope: 'per-repo',
+    });
+  }
+  return map;
 }
 
 module.exports = {
   THEME_RULES_VERSION,
   THEME_OUTPUT_VERSION,
   THEME_NAMES,
+  compareThemeItems,
   computeThemes,
+  computeRepoThemes,
+  computeRepoThemesMap,
+  pickTopTheme,
   classifyHeadline,
   tokenize,
   parseConventionalPrefix,
