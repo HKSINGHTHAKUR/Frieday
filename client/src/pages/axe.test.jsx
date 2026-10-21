@@ -99,6 +99,41 @@ const TIMELINE_PAYLOAD = {
   ],
 };
 
+const REPO_THEME_PAYLOAD = {
+  version: 1,
+  rulesVersion: 1,
+  totalCommits: 34,
+  themedCommits: 28,
+  unclassified: 4,
+  noMessage: 0,
+  noise: 2,
+  items: [
+    {
+      theme: 'Bug fix',
+      confidence: 'High',
+      commitCount: 20,
+      share: 0.714,
+      evidence: {
+        repoNames: ['me/app'],
+        commitShas: ['abc123def456'],
+        sampleMessages: ['fix: null deref in parser'],
+      },
+    },
+    {
+      theme: 'Feature',
+      confidence: 'Medium',
+      commitCount: 8,
+      share: 0.286,
+      evidence: {
+        repoNames: ['me/app'],
+        commitShas: ['def456abc123'],
+        sampleMessages: ['feat: add dashboard'],
+      },
+    },
+  ],
+  topTheme: { theme: 'Bug fix', commitCount: 20, share: 0.714, confidence: 'High' },
+};
+
 const REPO_LIST_PAYLOAD = {
   items: [
     {
@@ -119,9 +154,34 @@ const REPO_LIST_PAYLOAD = {
       openPRs: 2,
       openIssues: 1,
     },
+    {
+      id: '64b64b64b64b64b64b64b64c',
+      fullName: 'me/web',
+      owner: 'me',
+      name: 'web',
+      visibility: 'public',
+      primaryLanguage: 'JavaScript',
+      stars: 4,
+      fork: false,
+      pushedAt: '2026-10-03T10:00:00Z',
+      updatedAt: '2026-10-03T10:00:00Z',
+      description: 'Web client',
+      health: 'steady',
+      daysSinceActivity: 12,
+      lastActivityAt: '2026-10-03T12:00:00Z',
+      openPRs: 1,
+      openIssues: 0,
+    },
   ],
   nextCursor: null,
   hasMore: false,
+  // Phase 10.2: the theme map must be covered by the accessibility fixture —
+  // the per-repo drill-down panels are landmarks, and two open panels must
+  // not share an accessible name.
+  repoThemes: {
+    '64b64b64b64b64b64b64b64b': REPO_THEME_PAYLOAD,
+    '64b64b64b64b64b64b64b64c': REPO_THEME_PAYLOAD,
+  },
 };
 
 const REPO_DETAIL_PAYLOAD = {
@@ -268,6 +328,25 @@ describe('T5.2 + T5.3 accessibility (axe, design_system.md §28)', () => {
   it('Repositories renders with no axe violations', async () => {
     renderInShell(<Route path="*" element={<Repositories />} />, ['/repositories']);
     await waitFor(() => expect(screen.getByText('me/app')).toBeTruthy());
+    await assertAxeClean();
+  });
+
+  it('Repositories with TWO open theme drill-downs has no axe violations', async () => {
+    // The per-repo theme panel is a landmark region. Two open panels must
+    // have UNIQUE accessible names, otherwise axe reports `landmark-unique`.
+    const { default: userEventFn } = await import('@testing-library/user-event');
+    const user = userEventFn.setup();
+    renderInShell(<Route path="*" element={<Repositories />} />, ['/repositories']);
+    await waitFor(() => expect(screen.getByText('me/app')).toBeTruthy());
+
+    const toggles = screen.getAllByRole('button', { name: /View themes/ });
+    expect(toggles.length).toBe(2);
+    await user.click(toggles[0]);
+    await user.click(toggles[1]);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('heading', { name: /^Commit themes for / }).length).toBe(2);
+    });
     await assertAxeClean();
   });
 

@@ -10,3 +10,6 @@ rules.md
 design_system.md
 agents.md
 tasks.md
+# Unrelated local tooling config (LiteLLM model list) — not part of the
+# application, not read by any source file, and excluded from the release.
+config.yaml

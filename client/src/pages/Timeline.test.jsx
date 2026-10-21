@@ -100,6 +100,19 @@ describe('Timeline URL synchronization (T5.2)', () => {
     expect(await screen.findByRole('option', { name: /me\/web/ })).toBeTruthy();
   });
 
+  it('does NOT request the per-repository theme map', async () => {
+    // The repo filter uses only the repository identity. The theme map is the
+    // largest part of the response (85% of the bytes for a small page), so
+    // the server makes it opt-in — this page must not pay for it.
+    renderTimeline('?range=30d');
+
+    await waitFor(() => expect(apiGet).toHaveBeenCalledWith('/api/repos?sort=activity&limit=50'));
+    const repoCalls = apiGet.mock.calls.filter((c) => String(c[0]).startsWith('/api/repos?'));
+    for (const [url] of repoCalls) {
+      expect(url).not.toContain('includeThemes');
+    }
+  });
+
   it('changing the range updates the URL', async () => {
     const { user } = renderTimeline('?range=30d');
 

@@ -67,7 +67,7 @@ Tailwind configured with these CSS variables (`client/src/styles/index.css`). Al
 | `--success-bg` | `#E7F5EC` | |
 | `--warning` | `#B45309` | Quiet, rate-limited, medium confidence |
 | `--warning-bg` | `#FEF3E2` | |
-| `--danger` | `#DC2626` | Failed, stalled, errors |
+| `--danger` | `#C81E1E` | Failed, stalled, errors (5.0:1 on danger-bg) |
 | `--danger-bg` | `#FDECEC` | |
 | `--info` | `#4F46E5` | AI-summary label, neutral info |
 
@@ -307,3 +307,13 @@ boxShadow: { sm: 'var(--shadow-sm)', md: 'var(--shadow-md)', lg: 'var(--shadow-l
 Component inventory (must exist before Phase 5 is marked done): `Button, Card, Badge, Input, Select, SegmentedControl, Modal, Toast, Tooltip, Skeleton, EmptyState, ErrorCard, SyncProgress, InsightCard, EvidenceExpander, RepoRow, ActivityChart, LanguageDonut, MetricCard`. Missing primitives block phase sign-off.
 
 Phase 10.1 additions: `CommitThemesCard` (components/domain) — commit-theme list with denominator, confidence badges, bounded headline samples, honest empty state; `MobileNav` (components/layout) — slide-over primary navigation for <640px.
+
+Phase 10.2 additions: `RepoThemes` (components/domain) — the per-repository top-theme chip and the drill-down toggle on a repository row.
+
+**Repository top-theme chip (Phase 10.2):**
+- Rendered on a repository row only when that repository has at least one themed commit. A repository with none gets **no chip and no affordance** — never an invented top theme.
+- The chip is an `info`-tone `Badge` reading `<Theme> · N commit(s)` (singular for 1), followed by the share of themed commits (`71.4% of themed commits`) and a "View themes" / "Hide themes" toggle.
+- The chip names a count of commits, never a share of skill. The drill-down panel carries the same honesty copy as the cross-repo card.
+- **Ranking (one rule, used for the chip AND for the displayed list):** confidence desc → commit count desc → `THEME_PRIORITY` asc → theme name asc. The chip is therefore always the same theme as the drill-down's first row. Ties are order-independent — the same data always yields the same chip.
+- The drill-down reuses `CommitThemesCard` with `scope="per-repo"` (distinct heading id so both cards can coexist on one page).
+- **Accessible names name the repository.** Several drill-downs can be open at once, so the panel heading ("Commit themes for `<repo>`") and the disclosure control ("`<repo>`: View themes") each identify their repository. Two open panels are two distinct landmarks, never two landmarks with the same name (axe `landmark-unique`).

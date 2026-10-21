@@ -208,8 +208,8 @@ Base: `/api`. JSON only. Auth: cookies (`fd_access`, `fd_refresh`), `credentials
 | POST | `/api/sync` | yes | Enqueue/start sync (MVP: in-process, 1 at a time per user) | 409 if already running |
 | GET | `/api/sync/status` | yes | Progress: `{ status, phase, done, total, perResource, error? }` | Poll every 2s |
 | GET | `/api/dashboard?range=30d\|90d\|12m` | yes | Aggregates: KPIs, timeline buckets, languages, focus tags, **commit themes** (Phase 10.1), top repos, insights (template text in MVP) | Memoized 60s |
-| GET | `/api/repos?sort=activity\|recent&limit&cursor` | yes | Repo list with health + counts | Cursor pagination |
-| GET | `/api/repos/:id?range=90d` | yes | Repo detail + recent items + mini timeline | 404 if not owned/inaccessible |
+| GET | `/api/repos?sort=activity\|recent&limit&cursor` | yes | Repo list with health + counts + `repoThemes` map (Phase 10.2 per-repo commit themes) | Cursor pagination |
+| GET | `/api/repos/:id?range=90d` | yes | Repo detail + recent items + mini timeline (commit headline only — never the body) | 404 if not owned/inaccessible |
 | GET | `/api/timeline?range&repoId?&granularity=` | yes | Raw buckets for charts + CSV (V1 `&format=csv`) | |
 | GET | `/api/insights?range=` | yes | Insight list with metrics + evidence refs | |
 | POST | `/api/insights/:id/explain` | yes (V1) | AI paraphrase of one stored insight | MVP: 501 with `AI_DISABLED` code |
@@ -393,6 +393,77 @@ Guarantees: computed on demand from the already-loaded user-scoped commits (no
 extra query, no persistence, no new model, no new endpoint); commit bodies
 (`messageFull`) are never scanned or exposed; every theme carries a confidence
 level and bounded evidence; no theme is asserted when nothing qualifies.
+
+### 10.2 Per-repository theme contract (Phase 10.2)
+
+`themes.js` also exposes the per-repository variant of the SAME classifier —
+`computeRepoThemes({ commits, repositories, repoId })` and
+`computeRepoThemesMap({ commits, repositories })` — mirroring
+`focus.js` `computeRepoFocusTags`. There is no second taxonomy: the same
+prefix rules, exact-token rules and `THEME_PRIORITY` order apply.
+
+`GET /api/repos` gains a `repoThemes` map keyed by repository id, delivered in
+the SAME response as the repository list (one request for the whole page — the
+client never asks per repository). The map is **opt-in**: it is returned only
+when the request carries `includeThemes=true` (a malformed value is a 400
+`VALIDATION_ERROR`). The map is the largest part of the response — measured
+85% of the bytes for a small page and 94% for a 50-repo page — and only the
+Repositories page consumes it, so the Timeline page's repository-filter request
+does not request it.
+
+```jsonc
+"repoThemes": {
+  "<repoId>": {
+    "version": 1, "rulesVersion": 1,
+    "totalCommits": 34, "themedCommits": 28,   // denominator for percentages
+    "unclassified": 4, "noMessage": 0, "noise": 2,
+    "items": [ /* same shape as the cross-repo items */ ],
+    "topTheme": { "theme": "Bug fix", "commitCount": 20, "share": 0.714, "confidence": "High" }
+  }
+}
+```
+
+Guarantees: every repository on the page has an entry (empty payload +
+`topTheme: null` when it has no commits); counts reconcile per repository
+(`totalCommits = themedCommits + unclassified + noMessage + noise`); percentages
+use that repository's themed-commit denominator; `topTheme` is deterministic and
+is by construction the FIRST item of `items` — one comparator
+(`compareThemeItems`: confidence → commit count → `THEME_PRIORITY` → name)
+orders both, so the row's chip and the drill-down's first row can never
+disagree; commits are user-scoped by the same `userId` filter as every other
+repository read; `messageFull` is never read or exposed. The per-repo
+confidence tier does not borrow the cross-repo "≥2 repositories"
+corroboration rule — a single repository cannot corroborate across
+repositories. Malformed commit records (null / undefined / non-object) are
+skipped: they are not counted, not classified, and never abort the
+aggregation of a repository's valid siblings.
+
+**Query cost.** `GET /api/repos` issues **one** aggregation on the `commits`
+collection for the repositories on the current page:
+
+```
+$match   { userId, repoId: { $in: <page repo ids> } }   // user-scoped + page-scoped
+$project { messageHeadline, sha, repoId, authoredAt }   // never messageFull
+$sort    { authoredAt: -1, sha: 1 }                     // newest-first, deterministic tiebreak
+$group   { _id: '$repoId', docs: { $push: '$$ROOT' } }
+$project { docs: { $slice: ['$docs', 500] } }           // 500 per repository
+```
+
+The per-repository window is applied **after** the grouping, so it is
+enforced independently for every repository: a busy repository can never
+consume a quiet repository's budget (a single global `.limit()` did exactly
+that — the busiest repository took the whole allowance and quiet
+repositories were left with zero commits, silently losing their theme chip).
+The ceiling matches the `SYNC_MAX_COMMITS_PER_REPO` ingestion cap, so the theme
+view covers every ingested commit for those repositories while the query stays
+provably bounded. The same fetched set is reused by the health computation
+(whose rule needs only each repository's most recent commit date, always
+present in the window), so the endpoint still issues ONE commit query. The
+established `getRepoHealthForIds` contract is unchanged — it takes the
+pre-fetched commit map as an optional third argument. The `GET /api/repos` list
+route has no `range` parameter, so repository-page analysis spans all ingested
+history for the listed repositories — consistent with the health computation
+rendered on the same page.
 
 ---
 

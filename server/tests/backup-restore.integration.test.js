@@ -14,7 +14,10 @@ const fs = require('node:fs');
 const { execSync } = require('node:child_process');
 const path = require('node:path');
 
-const SCRIPT = path.resolve(process.cwd(), 'scripts/backup-restore.js');
+// The script lives at the repository ROOT, but this test runs with cwd =
+// `server/` under `npm test -w server` and cwd = the repo root otherwise.
+// Resolve it relative to THIS FILE, so the test works from either directory.
+const SCRIPT = path.resolve(__dirname, '..', '..', 'scripts', 'backup-restore.js');
 
 const SOURCE_URI = 'mongodb://127.0.0.1:27017/frieday_backup_drill_source';
 const TARGET_URI = 'mongodb://127.0.0.1:27017/frieday_backup_drill_target';

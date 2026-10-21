@@ -65,7 +65,9 @@ describe('Repositories page (T5.3)', () => {
     expect(screen.getByText('Active')).toBeTruthy();
     expect(screen.getByText('Stalled')).toBeTruthy();
     expect(screen.getAllByText('private').length).toBeGreaterThanOrEqual(1);
-    expect(apiGet).toHaveBeenCalledWith(expect.stringMatching(/^\/api\/repos\?sort=activity&limit=50$/));
+    expect(apiGet).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/api\/repos\?sort=activity&limit=50&includeThemes=true$/)
+    );
   });
 
   it('paginates with the cursor contract and disables the button while loading', async () => {
@@ -76,7 +78,9 @@ describe('Repositories page (T5.3)', () => {
     await user.click(next);
 
     await waitFor(() => expect(screen.getByText('tester/cli')).toBeTruthy());
-    expect(apiGet).toHaveBeenCalledWith('/api/repos?sort=activity&limit=50&cursor=cursor-token-1');
+    expect(apiGet).toHaveBeenCalledWith(
+      '/api/repos?sort=activity&limit=50&includeThemes=true&cursor=cursor-token-1'
+    );
     // Page two has no more results: the Next control disappears.
     expect(screen.queryByRole('button', { name: /Next page/ })).toBeNull();
   });
@@ -112,6 +116,8 @@ describe('Repositories page (T5.3)', () => {
     await waitFor(() => expect(screen.getByText('tester/app')).toBeTruthy());
     await user.click(screen.getByRole('button', { name: 'Recent' }));
 
-    await waitFor(() => expect(apiGet).toHaveBeenCalledWith('/api/repos?sort=recent&limit=50'));
+    await waitFor(() =>
+      expect(apiGet).toHaveBeenCalledWith('/api/repos?sort=recent&limit=50&includeThemes=true')
+    );
   });
 });

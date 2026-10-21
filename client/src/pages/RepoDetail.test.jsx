@@ -20,9 +20,15 @@ const DETAIL = {
     commits: [
       {
         sha: 'abc123def456',
-        messageFull: 'feat: add dashboard',
+        // The API returns the headline only — the commit body is never exposed.
         messageHeadline: 'feat: add dashboard',
         authoredAt: '2026-10-04T09:00:00Z',
+      },
+      {
+        sha: 'def456abc123',
+        // A commit with no headline still renders an honest placeholder.
+        messageHeadline: null,
+        authoredAt: '2026-10-03T09:00:00Z',
       },
     ],
     pullRequests: [
@@ -80,6 +86,16 @@ describe('RepoDetail page (T5.3)', () => {
     expect(screen.getByText('feat: add dashboard')).toBeTruthy();
     expect(screen.getByRole('img', { name: /Activity chart/ })).toBeTruthy();
     expect(apiGet).toHaveBeenCalledWith(`/api/repos/${REPO_ID}?range=90d`);
+  });
+
+  it('renders an honest placeholder for a commit with no headline', async () => {
+    // The API exposes the headline only — the commit body is never returned.
+    // A commit with no headline must still render a row, never a blank.
+    apiGet.mockResolvedValue(DETAIL);
+    renderDetail([`/repositories/${REPO_ID}`]);
+
+    await waitFor(() => expect(screen.getAllByText('tester/app').length).toBeGreaterThan(0));
+    expect(screen.getByText('(no commit message)')).toBeTruthy();
   });
 
   it('renders skeletons while loading, then the populated view', async () => {

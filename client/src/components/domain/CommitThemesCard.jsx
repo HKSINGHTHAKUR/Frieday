@@ -13,6 +13,11 @@ import Badge from '../ui/Badge.jsx';
  *
  * Evidence is bounded by the server (≤20 SHAs, ≤5 headline samples, never
  * the commit body).
+ *
+ * Phase 10.2: `scope="per-repo"` renders the same contract for a single
+ * repository (the cross-repo card on the Dashboard, the per-repo drill-down
+ * on the Repositories page). The heading id is derived from `scope` so two
+ * cards can coexist on one page without duplicate ids.
  */
 function confidenceTone(confidence) {
   if (confidence === 'High') return 'success';
@@ -20,20 +25,37 @@ function confidenceTone(confidence) {
   return 'info';
 }
 
-export default function CommitThemesCard({ themes }) {
+export default function CommitThemesCard({ themes, scope = 'cross-repo', idSuffix = '', repoName = '' }) {
   const items = Array.isArray(themes?.items) ? themes.items : [];
   const themedCommits = themes?.themedCommits ?? 0;
+  const isPerRepo = scope === 'per-repo';
+  // The heading id must be UNIQUE in the document. Several per-repo panels can
+  // be open at the same time (each row owns its own open state), so the id is
+  // suffixed with the caller's discriminator (the repository id).
+  const headingId = isPerRepo
+    ? `repo-commit-themes-heading${idSuffix ? `-${idSuffix}` : ''}`
+    : 'commit-themes-heading';
+  // The ACCESSIBLE NAME of the region must be unique too, not just the id:
+  // two open per-repo panels that share the name "Commit themes for this
+  // repository" are two landmarks with the same name, which screen readers
+  // cannot tell apart (axe `landmark-unique`). The repository name
+  // disambiguates them; without one, the id keeps the names distinct.
+  const title = isPerRepo
+    ? repoName
+      ? `Commit themes for ${repoName}`
+      : `Commit themes for this repository${idSuffix ? ` (${idSuffix})` : ''}`
+    : 'Commit themes';
 
   // No themed commits → honest empty state, never a fabricated distribution.
   if (items.length === 0 || themedCommits === 0) {
     return (
       <section
         className="rounded-md border border-border bg-surface p-20 shadow-sm"
-        aria-labelledby="commit-themes-heading"
+        aria-labelledby={headingId}
       >
         <div className="mb-16 flex items-center justify-between gap-12">
-          <h2 id="commit-themes-heading" className="text-base font-semibold leading-6 text-text">
-            Commit themes
+          <h2 id={headingId} className="text-base font-semibold leading-6 text-text">
+            {title}
           </h2>
         </div>
         <div className="py-16 text-center">
@@ -49,11 +71,11 @@ export default function CommitThemesCard({ themes }) {
   return (
     <section
       className="rounded-md border border-border bg-surface p-20 shadow-sm"
-      aria-labelledby="commit-themes-heading"
+      aria-labelledby={headingId}
     >
       <div className="mb-16 flex items-center justify-between gap-12">
-        <h2 id="commit-themes-heading" className="text-base font-semibold leading-6 text-text">
-          Commit themes
+        <h2 id={headingId} className="text-base font-semibold leading-6 text-text">
+          {title}
         </h2>
         <span className="text-xs text-text3">of {themedCommits} themed commits</span>
       </div>
@@ -76,8 +98,15 @@ export default function CommitThemesCard({ themes }) {
               )}
               {samples.length > 0 && (
                 <ul className="mt-4 space-y-2" role="list" aria-label={`${item.theme} sample commits`}>
-                  {samples.map((message) => (
-                    <li key={message} className="mono break-words text-xs text-text3" title={message}>
+                  {samples.map((message, index) => (
+                    // The message text is not a unique key — two commits can
+                    // carry the same headline. The index is stable here because
+                    // the server sorts the samples and the list never reorders.
+                    <li
+                      key={`${item.theme}-${index}`}
+                      className="mono break-words text-xs text-text3"
+                      title={message}
+                    >
                       {message}
                     </li>
                   ))}

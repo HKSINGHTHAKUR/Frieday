@@ -1,13 +1,19 @@
 import { Link } from 'react-router-dom';
 import Badge from '../ui/Badge.jsx';
 import { formatCount, formatAgo } from '../../lib/format.js';
+import RepoThemes from './RepoThemes.jsx';
 
 /**
  * One repository list row (design_system.md §19): identity + visibility,
  * health badge (text, never color-only), factual counts from the API.
  * Numbers render exactly as supplied by GET /api/repos.
+ *
+ * Phase 10.2: the optional `repoThemes` entry (from the same GET /api/repos
+ * response) adds a top-theme chip and the per-repository theme drill-down.
+ * When absent — or when the repository has no themed commits — the row is
+ * exactly as before.
  */
-export default function RepoRow({ repo }) {
+export default function RepoRow({ repo, repoThemes }) {
   const health = repo.health ?? 'stalled';
   const label = health.charAt(0).toUpperCase() + health.slice(1);
 
@@ -33,6 +39,7 @@ export default function RepoRow({ repo }) {
         {typeof repo.stars === 'number' && <span>{formatCount(repo.stars)} stars</span>}
         <span>Pushed {repo.pushedAt ? formatAgo(repo.pushedAt) : '—'}</span>
       </div>
+      {repoThemes ? <RepoThemes repoId={repo.id} repoName={repo.fullName} themes={repoThemes} /> : null}
     </li>
   );
 }

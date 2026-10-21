@@ -12,21 +12,119 @@ const ActivityBucket = require('../../models/ActivityBucket');
 const { dayStartUTC } = require('../../utils/dates');
 
 /**
- * Get repo health for a list of repo IDs using T4.2 repoHealth.
+ * Per-repository ceiling for the Phase 10.2 commit-theme analysis.
+ *
+ * Matches the ingestion cap (SYNC_MAX_COMMITS_PER_REPO, default 500), so the
+ * theme view covers every commit the user has ingested for the repositories on
+ * the page, while keeping the query provably bounded. Read from the validated
+ * env at call time so it can never drift from the ingestion ceiling.
  */
-async function getRepoHealthForIds(userId, repoIdStrings) {
+const DEFAULT_MAX_COMMITS_PER_REPO_FOR_THEMES = 500;
+
+function maxCommitsPerRepoForThemes() {
+  try {
+    const configured = Number(require('../../config/env').getEnv().SYNC_MAX_COMMITS_PER_REPO);
+    if (Number.isInteger(configured) && configured > 0) return configured;
+  } catch {
+    // Env not loaded (unit test context) — fall back to the documented default.
+  }
+  return DEFAULT_MAX_COMMITS_PER_REPO_FOR_THEMES;
+}
+
+/**
+ * Get repo health for a list of repo IDs using T4.2 repoHealth.
+ *
+ * `commitsByRepo` may be supplied by the caller when it has already fetched
+ * the (bounded) commit window for these repositories — the health rule only
+ * needs each repository's most recent commit date, which the window always
+ * contains. Supplying it avoids a second, redundant commits query.
+ *
+ * @param {string} userId
+ * @param {string[]} repoIdStrings
+ * @param {Map<string, Array>} [commitsByRepo] pre-fetched commits, grouped by repo id
+ */
+async function getRepoHealthForIds(userId, repoIdStrings, commitsByRepo = null) {
   if (!repoIdStrings.length) return new Map();
 
   const repos = await fetchReposByIds(repoIdStrings);
-  const repoEvents = await fetchRepoEvents(userId, repoIdStrings);
-  const { commitsByRepo, prsByRepo, issuesByRepo } = groupEventsByRepo(
-    repoEvents.commits,
-    repoEvents.pullRequests,
-    repoEvents.issues
-  );
+  const commits = commitsByRepo ?? (await getCommitsByRepoIds(userId, repoIdStrings));
+  const { pullRequests, issues } = await fetchRepoEvents(userId, repoIdStrings);
+  const {
+    commitsByRepo: commitsByRepoId,
+    prsByRepo,
+    issuesByRepo,
+  } = groupEventsByRepo(commits, pullRequests, issues);
   const repoMap = buildRepoMap(repos);
 
-  return computeHealthForRepos(repoIdStrings, repoMap, { commitsByRepo, prsByRepo, issuesByRepo });
+  return computeHealthForRepos(repoIdStrings, repoMap, {
+    commitsByRepo: commitsByRepoId,
+    prsByRepo,
+    issuesByRepo,
+  });
+}
+
+/**
+ * Get the user-scoped commits for a list of repo IDs, grouped by repo id.
+ *
+ * Phase 10.2 (per-repository commit themes) needs the commits for the repos on
+ * the current page. The health computation needs the same set, so this helper
+ * is the single commit read for the whole list endpoint.
+ *
+ * The window is PER REPOSITORY, applied inside the pipeline after the
+ * grouping. A single global `.limit()` is not equivalent: the busiest
+ * repository would consume the entire budget and quiet repositories would
+ * silently lose their evidence (their theme chip would disappear entirely).
+ * With the per-repository window every repository on the page keeps its own
+ * most recent commits, so a quiet repository is never starved by a busy one.
+ *
+ * Bounded: at most `maxCommitsPerRepoForThemes()` commits per repository on
+ * the page are returned — at most 50 x 500 = 25,000 documents for a full page.
+ * The ceiling matches the ingestion cap (SYNC_MAX_COMMITS_PER_REPO), so the
+ * theme view covers every commit the user has actually ingested for these
+ * repositories, while the query stays provably bounded even if the ingested
+ * data ever drifts beyond the cap.
+ *
+ * Deterministic: commits are ordered newest-first, with the commit SHA as a
+ * tiebreak. The (userId, sha, repoId) identity index makes that a total
+ * order, so the same data always yields the same window.
+ *
+ * `messageFull` is never read: the projection selects only the four fields
+ * the theme classifier and the health rule need.
+ *
+ * @param {string} userId
+ * @param {string[]} repoIdStrings
+ * @returns {Promise<Map<string, Array>>} commits grouped by repo id (string keys)
+ */
+async function getCommitsByRepoIds(userId, repoIdStrings) {
+  if (!repoIdStrings.length) return new Map();
+  const repoIds = repoIdStrings.map((s) => new mongoose.Types.ObjectId(s));
+  const perRepo = maxCommitsPerRepoForThemes();
+  const rows = await Commit.aggregate(
+    [
+      // User-scoped and page-scoped: never another user's commits, never a
+      // repository that is not on the current page.
+      { $match: { userId: new mongoose.Types.ObjectId(userId), repoId: { $in: repoIds } } },
+      // The classifier needs the headline; the health rule needs the date.
+      // The commit body is never read.
+      { $project: { _id: 0, messageHeadline: 1, sha: 1, repoId: 1, authoredAt: 1 } },
+      { $sort: { authoredAt: -1, sha: 1 } },
+      { $group: { _id: '$repoId', docs: { $push: '$$ROOT' } } },
+      // The per-repository window, applied AFTER the grouping.
+      { $project: { docs: { $slice: ['$docs', perRepo] } } },
+    ],
+    { allowDiskUse: true }
+  ).exec();
+
+  const grouped = new Map();
+  for (const row of rows) {
+    if (!row || !row._id) continue;
+    grouped.set(row._id.toString(), Array.isArray(row.docs) ? row.docs : []);
+  }
+  // `$group` does not guarantee an output order, so the Map's iteration order
+  // would otherwise vary between identical calls. Sort by repository id to
+  // make the result (and the API payload built from it) byte-for-byte
+  // repeatable.
+  return new Map([...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)));
 }
 
 async function fetchReposByIds(repoIdStrings) {
@@ -35,11 +133,7 @@ async function fetchReposByIds(repoIdStrings) {
 }
 
 async function fetchRepoEvents(userId, repoIdStrings) {
-  const [commits, pullRequests, issues] = await Promise.all([
-    Commit.find({
-      userId: new mongoose.Types.ObjectId(userId),
-      repoId: { $in: repoIdStrings.map((s) => new mongoose.Types.ObjectId(s)) },
-    }).lean(),
+  const [pullRequests, issues] = await Promise.all([
     PullRequest.find({
       userId: new mongoose.Types.ObjectId(userId),
       repoId: { $in: repoIdStrings.map((s) => new mongoose.Types.ObjectId(s)) },
@@ -49,7 +143,7 @@ async function fetchRepoEvents(userId, repoIdStrings) {
       repoId: { $in: repoIdStrings.map((s) => new mongoose.Types.ObjectId(s)) },
     }).lean(),
   ]);
-  return { commits, pullRequests, issues };
+  return { pullRequests, issues };
 }
 
 function groupEventsByRepo(commits, pullRequests, issues) {
@@ -114,6 +208,12 @@ async function computeHealthForRepos(repoIdStrings, repoMap, events) {
 
 /**
  * Get recent activity for a repository (commits, PRs, issues).
+ *
+ * The commit projection is EXPLICIT: only the fields the repository-detail
+ * UI renders are read. The commit body (`messageFull`) is never selected, so
+ * it cannot reach the response — the endpoint has no contract that requires
+ * it, and prd.md §18 states that commit bodies are never exposed. The
+ * headline alone is what the activity list shows.
  */
 async function getRecentActivity(userId, repoId, range) {
   const anchor = dayStartUTC(new Date());
@@ -126,6 +226,7 @@ async function getRecentActivity(userId, repoId, range) {
       repoId,
       authoredAt: { $gte: rangeStart, $lte: rangeEnd },
     })
+      .select('_id sha messageHeadline authoredAt')
       .sort({ authoredAt: -1 })
       .limit(10)
       .lean(),
@@ -191,6 +292,7 @@ async function getMiniTimeline(userId, repoId, range) {
 
 module.exports = {
   getRepoHealthForIds,
+  getCommitsByRepoIds,
   getRecentActivity,
   getMiniTimeline,
 };

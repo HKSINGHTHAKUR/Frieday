@@ -21,6 +21,11 @@ const fake = {
   user: USERS.a,
   tokenCalls: 0,
   revocations: [],
+  // When true, the fake GitHub rejects grant revocation. The flag lives on
+  // the fake server rather than in process.env.GITHUB_API_BASE: getEnv()
+  // memoizes the validated config on first use, so a mid-test env override
+  // never reaches the already-resolved GitHub config.
+  revokeFails: false,
 };
 
 function startFakeGithub() {
@@ -47,6 +52,11 @@ function startFakeGithub() {
       return;
     }
     if (req.method === 'DELETE' && req.url === '/applications/test-gh-client/grant') {
+      if (fake.revokeFails) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ message: 'revocation failed' }));
+        return;
+      }
       fake.revocations.push({ auth: req.headers.authorization });
       res.writeHead(204);
       res.end();
@@ -58,13 +68,19 @@ function startFakeGithub() {
   return server;
 }
 
+// Deterministic, isolated local test database. Pinned at module load (not
+// inside before()) because getEnv() memoizes the validated config on its
+// FIRST read — setting MONGO_URI later has no effect. Without an explicit
+// target the default `frieday` database is rejected by the pre-flight guard
+// and every DB-backed test below would silently SKIP.
+require('./helpers/dbTestTarget').useTestDatabase('frieday_test_user_endpoints');
+
 describe('user endpoints (tasks.md T1.2)', () => {
   let appServer;
   let fakeServer;
   let baseUrl;
   let fakeUrl;
   let dbUp = false;
-
   function cookieValue(res, name) {
     for (const c of res.headers.getSetCookie()) {
       if (c.startsWith(`${name}=`)) {
@@ -113,24 +129,18 @@ describe('user endpoints (tasks.md T1.2)', () => {
     process.env.GITHUB_API_BASE = fakeUrl;
 
     const db = require('../src/config/db');
+    const { connectForTest } = require('./helpers/dbTestTarget');
     try {
+      // INC-1 guard (pre-flight): the resolved target is validated BEFORE any
+      // connection attempt, so a production-targeting MONGO_URI never opens a
+      // socket to production.
       await Promise.race([
-        db.connectDb(),
+        connectForTest(),
         new Promise((_resolve, reject) => setTimeout(() => reject(new Error('db wait timeout')), 5000)),
       ]);
       dbUp = db.dbStatus() === 'up';
     } catch {
       dbUp = false;
-    }
-    if (dbUp) {
-      // INC-1 guard: these suites create and delete users (including the
-      // delete-data wipe), so they may only run against an isolated local
-      // test database — never a live deployment URI (see INC-1).
-      const host = require('mongoose').connection.host || '';
-      const dbName = require('mongoose').connection.name || '';
-      if (!(host === '127.0.0.1' || host === 'localhost') || !/test/i.test(dbName)) {
-        dbUp = false;
-      }
     }
 
     const { createApp } = require('../src/app');
@@ -415,48 +425,42 @@ describe('user endpoints (tasks.md T1.2)', () => {
       t.skip('requires MongoDB');
       return;
     }
-    // Make the fake reject grant revocation.
+    // Make the fake reject grant revocation. The flag lives on the fake
+    // server, NOT in process.env.GITHUB_API_BASE: getEnv() memoizes the
+    // validated config, so a mid-test env override never reaches the
+    // already-resolved GitHub config and the request would silently go to the
+    // working fake instead (the test would pass for the wrong reason).
     fake.user = USERS.a;
     const { access } = await login();
 
-    // Override fake.revokeFails check inline: temporarily replace the DELETE handler.
-    const revokeFailServer = http.createServer((req, res) => {
-      if (req.method === 'DELETE' && req.url === '/applications/test-gh-client/grant') {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ message: 'revocation failed' }));
-        return;
-      }
-      res.writeHead(404);
-      res.end();
-    });
-    await new Promise((resolve) => revokeFailServer.listen(0, resolve));
-    const revokeFailUrl = `http://127.0.0.1:${revokeFailServer.address().port}`;
-    process.env.GITHUB_API_BASE = revokeFailUrl;
+    try {
+      fake.revokeFails = true;
 
-    const res = await fetch(`${baseUrl}/api/auth/disconnect`, {
-      method: 'POST',
-      headers: { Cookie: `fd_access=${access}` },
-    });
-    assert.equal(res.status, 200, 'disconnect must return 200 even when revocation fails');
-    const body = await res.json();
-    assert.equal(body.revoked, false, 'client must be told revocation did not succeed');
-    assert.equal(body.disconnected, true, 'disconnected must still be true');
+      const res = await fetch(`${baseUrl}/api/auth/disconnect`, {
+        method: 'POST',
+        headers: { Cookie: `fd_access=${access}` },
+      });
+      assert.equal(res.status, 200, 'disconnect must return 200 even when revocation fails');
+      const body = await res.json();
+      assert.equal(body.revoked, false, 'client must be told revocation did not succeed');
+      assert.equal(body.disconnected, true, 'disconnected must still be true');
 
-    // Local token must still be cleared — the stale token cannot be used.
-    const User = require('../src/models/User');
-    const doc = await User.findOne({ githubId: USERS.a.id }).select('+githubTokenEnc').lean();
-    assert.equal(doc.githubTokenEnc, null, 'token must be cleared even on revocation failure');
+      // Local token must still be cleared — the stale token cannot be used.
+      const User = require('../src/models/User');
+      const doc = await User.findOne({ githubId: USERS.a.id }).select('+githubTokenEnc').lean();
+      assert.equal(doc.githubTokenEnc, null, 'token must be cleared even on revocation failure');
 
-    // Sync must refuse to start (no token).
-    const syncRes = await fetch(`${baseUrl}/api/sync`, {
-      method: 'POST',
-      headers: { Cookie: `fd_access=${access}` },
-    });
-    assert.equal(syncRes.status, 401, 'sync must refuse after disconnect even on revocation failure');
-
-    // Restore the original GitHub API base.
-    process.env.GITHUB_API_BASE = fakeUrl;
-    await new Promise((resolve) => revokeFailServer.close(resolve));
+      // Sync must refuse to start (no token).
+      const syncRes = await fetch(`${baseUrl}/api/sync`, {
+        method: 'POST',
+        headers: { Cookie: `fd_access=${access}` },
+      });
+      assert.equal(syncRes.status, 401, 'sync must refuse after disconnect even on revocation failure');
+    } finally {
+      // Restore the fake's behaviour even when an assertion above failed, so
+      // the failure cannot leak into the following tests.
+      fake.revokeFails = false;
+    }
   });
 
   it('already-disconnected: returns disconnected without revoking again', async (t) => {

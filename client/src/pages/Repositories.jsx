@@ -82,7 +82,7 @@ function RepositoriesList({ sort, repos }) {
   const { connected } = useAuth();
   const { startSync } = useSync();
   const toast = useToast();
-  const { items, hasMore, loading, loadingMore, error, reload, loadMore } = repos;
+  const { items, repoThemes, hasMore, loading, loadingMore, error, reload, loadMore } = repos;
 
   if (loading) {
     return (
@@ -124,7 +124,7 @@ function RepositoriesList({ sort, repos }) {
     <Card title={`All repositories (${items.length}${hasMore ? '+' : ''})`}>
       <ul className="flex flex-col" aria-label="Repositories">
         {items.map((repo) => (
-          <RepoRow key={repo.id} repo={repo} />
+          <RepoRow key={repo.id} repo={repo} repoThemes={repoThemes?.[repo.id]} />
         ))}
       </ul>
       {hasMore && (

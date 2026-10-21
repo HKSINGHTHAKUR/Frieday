@@ -311,6 +311,32 @@ contained a term from this theme's rule set" — nothing more.
 is a future extension. Computed on demand, never persisted. No new dependency, no new
 model, no new endpoint.
 
+**Proposed Phase 10.2 (2026-10-20, awaiting owner approval):** per-repository theme
+drill-down — the same classifier and taxonomy applied to one repository, surfaced on the
+existing Repositories page. Reuses the already-ingested commits; no new data source, no
+persistence, no new taxonomy. Tracked as a proposed task in `tasks.md` (Phase 10.2).
+
+**Phase 10.2 — per-repository theme drill-down (APPROVED 2026-10-20, implemented
+locally, remediated 2026-10-21; NOT deployed).** The owner approved: (1) a `repoThemes`
+map delivered in the existing `GET /api/repos` response; (2) placement on the existing
+Repositories page; (3) a top-theme chip per repository row. The same seven themes, rules,
+precedence and honesty constraints apply — a per-repository view is the same classifier
+scoped to one repository, never a second taxonomy. Percentages use that repository's
+themed-commit denominator, which is always displayed. A repository with no themed commits
+shows **no chip at all** — a top theme is never invented. Bounded evidence (≤20 SHAs, ≤5
+headline samples); commit bodies are never read or exposed.
+
+Implementation notes that constrain the product contract:
+- The map is **opt-in** (`includeThemes=true` on `GET /api/repos`). It is the largest
+  part of the response, and only the Repositories page uses it.
+- The chip and the drill-down's first row always name the same theme: one ranking rule
+  (confidence → commit count → theme priority → name) orders both.
+- Every repository on the page keeps its own recent commits. A busy repository can
+  never consume a quiet repository's evidence budget — a quiet repository's chip must
+  never disappear because another repository was busy.
+- The chip, the panel heading and the disclosure control each name the repository, so
+  two open drill-downs are distinguishable to a screen reader.
+
 ---
 
 ## 13. Explicitly Out-of-Scope Features

@@ -30,7 +30,7 @@
   --success-bg: #e7f5ec;
   --warning: #b45309;
   --warning-bg: #fef3e2;
-  --danger: #dc2626;
+  --danger: #c81e1e; /* darkened from #dc2626 — WCAG AA ≥4.5:1 on danger-bg (was 4.23:1) */
   --danger-bg: #fdecec;
   --info: #4f46e5;
 
