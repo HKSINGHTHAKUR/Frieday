@@ -11,7 +11,20 @@ const path = require('node:path');
 // single source of truth for every documented command. In containers where
 // env is injected at runtime (no .env file), dotenv silently no-ops — same as
 // before.
-require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+//
+// PRODUCTION NEVER LOADS .env. A deployed instance must take every value
+// from its platform's environment (Render). If a .env ever ended up in a
+// production image, its local-development OAuth callback and client id
+// would silently take precedence over the injected values, and the sign-in
+// would fail with "The redirect_uri is not associated with this application".
+// Skipping the file makes that class of mistake impossible.
+//
+// dotenv also does NOT override variables already present in process.env, so
+// a real env var always wins over the file — this is a second, belt-and-
+// braces guard rather than the only one.
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+}
 
 const { getEnv } = require('./config/env');
 const { connectDb, markShuttingDown } = require('./config/db');

@@ -8,6 +8,35 @@ class ResizeObserverStub {
 }
 globalThis.ResizeObserver = globalThis.ResizeObserver || ResizeObserverStub;
 
+// jsdom lacks matchMedia. The login screen reads it for the reduced-motion
+// query and for the stacked/desktop composition breakpoint, so a stub that
+// reports "no match" is required for those components to render.
+if (!globalThis.window.matchMedia) {
+  globalThis.window.matchMedia = (query) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => false,
+  });
+}
+
+// jsdom lacks IntersectionObserver (the WebGL robot canvas uses it to pause
+// rendering when the canvas scrolls out of view).
+if (!globalThis.IntersectionObserver) {
+  globalThis.IntersectionObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() {
+      return [];
+    }
+  };
+}
+
 // jsdom lacks scrollTo
 globalThis.scrollTo = globalThis.scrollTo || vi.fn();
 
