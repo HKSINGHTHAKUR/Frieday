@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom';
 import Button from './components/ui/Button.jsx';
 import Card from './components/ui/Card.jsx';
 import PageShell from './components/layout/PageShell.jsx';
@@ -13,6 +13,7 @@ import { AuthProvider } from './store/AuthStore.jsx';
 import { SyncProvider } from './store/SyncStore.jsx';
 import { ToastProvider } from './store/ToastStore.jsx';
 import { useAuth } from './hooks/useAuth.js';
+import { buildLoginUrl, readReturnDestination } from './lib/returnDestination.js';
 
 /**
  * Router + layout + auth gate (tasks.md T1.3).
@@ -36,9 +37,9 @@ export default function App() {
 }
 
 function Gate() {
-  const { status } = useAuth();
+  const { status, revalidating } = useAuth();
 
-  if (status === 'loading') {
+  if (status === 'loading' || revalidating) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-bg">
         <div className="w-narrow flex flex-col gap-16 text-center">
@@ -63,7 +64,7 @@ function Gate() {
         path="/*"
         element={
           status === 'unauthenticated' ? (
-            <Navigate to="/login" replace />
+            <UnauthenticatedRedirect />
           ) : (
             <ToastProvider>
               <SyncProvider>
@@ -88,10 +89,34 @@ function Gate() {
   );
 }
 
+/**
+ * Sends an unauthenticated visitor to the login page, carrying the route they
+ * were trying to reach so the sign-in can return them to it.
+ *
+ * The redirect REPLACES the history entry: keeping the protected route would
+ * leave it in the back stack, and Back would then re-enter it (the app would
+ * redirect to login again, so the user would ping-pong between the two).
+ */
+function UnauthenticatedRedirect() {
+  const location = useLocation();
+  const target = buildLoginUrl(location.pathname + location.search);
+  return <Navigate to={target} replace />;
+}
+
+/**
+ * The login route.
+ *
+ * A user who already has a valid session is sent on to the app. The redirect
+ * REPLACES the history entry so the login page is not left behind as a
+ * redundant step in the back stack (and so Back cannot return to it and
+ * bounce forward again).
+ */
 function LoginGate() {
   const { status } = useAuth();
+  const [searchParams] = useSearchParams();
   if (status === 'authenticated') {
-    return <Navigate to="/" replace />;
+    const destination = readReturnDestination(`?${searchParams.toString()}`);
+    return <Navigate to={destination} replace />;
   }
   return <Login />;
 }

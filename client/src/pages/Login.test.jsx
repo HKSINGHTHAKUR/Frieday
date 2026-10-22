@@ -95,3 +95,55 @@ describe('Login page — GitHub OAuth composition', () => {
     expect(cta.getAttribute('type')).toBe('button');
   });
 });
+
+describe('Login page — the return destination', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    apiGet.mockResolvedValue({ ok: true, github: 'configured' });
+    window.sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    window.sessionStorage.clear();
+  });
+
+  it('remembers a valid intended destination across the OAuth round-trip', async () => {
+    render(
+      <MemoryRouter initialEntries={['/login?next=%2Finsights']}>
+        <Login />
+      </MemoryRouter>
+    );
+    const cta = await screen.findByRole('button', { name: 'Continue with GitHub' });
+    cta.click();
+
+    await waitFor(() => {
+      expect(window.sessionStorage.getItem('fd:pending-destination')).toBe('/insights');
+    });
+  });
+
+  it('does not remember a malicious destination', async () => {
+    render(
+      <MemoryRouter initialEntries={['/login?next=https%3A%2F%2Fevil.example%2Fsteal']}>
+        <Login />
+      </MemoryRouter>
+    );
+    const cta = await screen.findByRole('button', { name: 'Continue with GitHub' });
+    cta.click();
+
+    await waitFor(() => {
+      expect(window.sessionStorage.getItem('fd:pending-destination')).toBeNull();
+    });
+  });
+
+  it('remembers nothing when there is no destination', async () => {
+    renderLogin();
+    const cta = await screen.findByRole('button', { name: 'Continue with GitHub' });
+    cta.click();
+
+    await waitFor(() => {
+      expect(window.sessionStorage.getItem('fd:pending-destination')).toBeNull();
+    });
+  });
+});

@@ -29,6 +29,8 @@ const envSchema = z.object({
   // silently accepted.
   // Endpoint overrides exist for local dev / CI test doubles only
   // (T1.1 acceptance: "mocked token endpoint, no live GitHub in CI").
+  // An unset authorize URL means "use github.com" (see config/github.js).
+  GITHUB_AUTHORIZE_URL: z.string().optional().default(undefined),
   GITHUB_TOKEN_URL: z.string().url().default('https://github.com/login/oauth/access_token'),
   GITHUB_API_USER_URL: z.string().url().default('https://api.github.com/user'),
   // Base URL for GitHub REST calls (T1.2 grant revocation); test-double override only.
