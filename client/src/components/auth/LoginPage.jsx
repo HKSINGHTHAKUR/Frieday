@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useGitHubAuth } from '../../hooks/useGitHubAuth.js';
 import { useAuth } from '../../hooks/useAuth.js';
 import { usePageVisibility } from '../../hooks/usePageVisibility.js';
@@ -118,6 +118,26 @@ export default function LoginPage() {
           </div>
           <div className="relative mx-auto w-full max-w-[484px] desktop:mx-0 desktop:max-w-none desktop:self-center">
             <AuthPanel status={state.status} message={state.message} onStart={signIn} />
+            <div className="mt-24 flex flex-col gap-[8px] items-center text-center sm:flex-row sm:justify-between sm:text-left">
+              <Link
+                to="/terms"
+                className="text-xs text-[#8a8d93] hover:text-[#f5f5f5] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff9b45]"
+              >
+                Terms of Service
+              </Link>
+              <Link
+                to="/privacy"
+                className="text-xs text-[#8a8d93] hover:text-[#f5f5f5] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff9b45]"
+              >
+                Privacy Policy
+              </Link>
+              <Link
+                to="/github-data"
+                className="text-xs text-[#8a8d93] hover:text-[#f5f5f5] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff9b45]"
+              >
+                GitHub Data &amp; Permissions
+              </Link>
+            </div>
           </div>
         </main>
       </div>
