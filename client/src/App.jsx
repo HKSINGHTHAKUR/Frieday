@@ -9,6 +9,9 @@ import RepoDetail from './pages/RepoDetail.jsx';
 import Insights from './pages/Insights.jsx';
 import Settings from './pages/Settings.jsx';
 import Login from './pages/Login.jsx';
+import Terms from './pages/Terms.jsx';
+import Privacy from './pages/Privacy.jsx';
+import GitHubData from './pages/GitHubData.jsx';
 import { AuthProvider } from './store/AuthStore.jsx';
 import { SyncProvider } from './store/SyncStore.jsx';
 import { ToastProvider } from './store/ToastStore.jsx';
@@ -60,6 +63,12 @@ function Gate() {
   return (
     <Routes>
       <Route path="/login" element={<LoginGate />} />
+      {/* Public legal pages — no GitHub authentication required, and they must
+          not initiate OAuth or redirect to /login. Placed before the catch-all
+          auth gate so they match first. */}
+      <Route path="/terms" element={<Terms />} />
+      <Route path="/privacy" element={<Privacy />} />
+      <Route path="/github-data" element={<GitHubData />} />
       <Route
         path="/*"
         element={
