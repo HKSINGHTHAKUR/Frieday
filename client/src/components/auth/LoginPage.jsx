@@ -1,6 +1,10 @@
-import { lazy, Suspense, useEffect, useRef } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useGitHubAuth } from '../../hooks/useGitHubAuth.js';
+import { useAuth } from '../../hooks/useAuth.js';
 import { usePageVisibility } from '../../hooks/usePageVisibility.js';
+import { safeNavigate } from '../../lib/safeNavigate.js';
+import { readReturnDestination, setPendingDestination } from '../../lib/returnDestination.js';
 import { gazeInput } from './robot/gaze.js';
 import AuthPanel from './AuthPanel.jsx';
 import { BackdropBase, BackdropGlow } from './Backdrop.jsx';
@@ -33,7 +37,37 @@ export default function LoginPage() {
   const rootRef = useRef(null);
   const stageRef = useRef(null);
   const { state, start } = useGitHubAuth();
+  const { status: sessionStatus } = useAuth();
+  const navigate = useNavigate();
   const visible = usePageVisibility();
+  const [searchParams] = useSearchParams();
+
+  // Where the user was heading before they were sent to the login page. It
+  // arrives as `?next=<route>` and is validated before it is used, so a
+  // crafted link cannot turn the sign-in into an open redirect.
+  const destination = useMemo(() => readReturnDestination(`?${searchParams.toString()}`), [searchParams]);
+
+  // THE sign-in action. Both the header's "Sign in" shortcut and the panel's
+  // "Continue with GitHub" CTA call this, so they share one OAuth initiation,
+  // one loading/disabled state, one error path and one duplicate-click guard
+  // (the `starting` ref inside useGitHubAuth).
+  //
+  // Session policy: a user who already has a valid session is sent to the
+  // dashboard instead of starting a redundant OAuth flow. (The app's auth
+  // gate normally bounces them off /login before this renders; this keeps the
+  // behaviour correct for the moment the session is known but the gate has
+  // not re-rendered yet.)
+  const signIn = useCallback(() => {
+    // Remember the intended destination across the OAuth round-trip. The
+    // flow is a full page navigation, so the `?next=` parameter is lost on
+    // the way out to the provider.
+    setPendingDestination(destination);
+    if (sessionStatus === 'authenticated') {
+      safeNavigate(navigate, destination, { replace: true });
+      return;
+    }
+    start();
+  }, [destination, navigate, sessionStatus, start]);
 
   // While connecting, the robot calmly looks at the GitHub button.
   useEffect(() => {
@@ -59,6 +93,8 @@ export default function LoginPage() {
     return () => root.removeAttribute('data-paused');
   }, [visible]);
 
+  const busy = state.status === 'redirecting';
+
   return (
     <div
       ref={rootRef}
@@ -72,7 +108,7 @@ export default function LoginPage() {
       <BackdropGlow />
 
       <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-        <Header />
+        <Header onSignIn={signIn} busy={busy} />
         <main className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pb-6 sm:px-8 desktop:grid desktop:grid-cols-[minmax(0,1fr)_clamp(400px,33vw,484px)] desktop:grid-rows-[minmax(0,1fr)] desktop:gap-[clamp(24px,3vw,56px)] desktop:overflow-visible desktop:px-[clamp(20px,5.5vw,104px)] desktop:pb-[clamp(16px,3svh,40px)]">
           <div
             ref={stageRef}
@@ -81,7 +117,7 @@ export default function LoginPage() {
             <OrbitalSystem stageRef={stageRef} />
           </div>
           <div className="relative mx-auto w-full max-w-[484px] desktop:mx-0 desktop:max-w-none desktop:self-center">
-            <AuthPanel status={state.status} message={state.message} onStart={start} />
+            <AuthPanel status={state.status} message={state.message} onStart={signIn} />
           </div>
         </main>
       </div>

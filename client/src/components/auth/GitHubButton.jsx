@@ -30,9 +30,6 @@ const GitHubButton = forwardRef(function GitHubButton(
         'shadow-[inset_0_1px_0_rgb(255_255_255/0.9),0_14px_34px_-16px_rgb(0_0_0/0.9)]',
         'transition-[background-color,box-shadow,transform,opacity] duration-200',
         'outline-none focus-visible:ring-2 focus-visible:ring-[#ff9b45] focus-visible:ring-offset-[3px] focus-visible:ring-offset-[#101214]',
-        // The header's "Sign in" shortcut sets this attribute for 1.4s to
-        // draw the eye to the CTA.
-        'data-[attention=true]:ring-2 data-[attention=true]:ring-[#ff9b45] data-[attention=true]:ring-offset-[3px] data-[attention=true]:ring-offset-[#101214]',
         blocked
           ? 'cursor-default'
           : 'cursor-pointer hover:-translate-y-px hover:bg-white hover:shadow-[inset_0_1px_0_#fff,0_18px_40px_-14px_rgb(255_120_60/0.45),0_0_0_1px_rgb(255_180_120/0.35)] active:translate-y-0 active:scale-[0.995] active:bg-[#e7e7e9]',

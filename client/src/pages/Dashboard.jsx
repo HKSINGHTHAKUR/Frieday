@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useDashboard } from '../hooks/useDashboard.js';
 import Card from '../components/ui/Card.jsx';
 import Skeleton from '../components/ui/Skeleton.jsx';
@@ -17,6 +17,8 @@ import { useAuth } from '../hooks/useAuth.js';
 import { useSync } from '../store/SyncStore.jsx';
 import { useToast } from '../store/ToastStore.jsx';
 import { formatCount, formatAgo } from '../lib/format.js';
+import { safeNavigate } from '../lib/safeNavigate.js';
+import { takePendingDestination } from '../lib/returnDestination.js';
 
 export default function Dashboard() {
   const { range, setRange, data: dashboardData, loading, error } = useDashboard();
@@ -24,6 +26,7 @@ export default function Dashboard() {
   const { user: authUser } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
+  const navigate = useNavigate();
   const connectedHandled = useRef(false);
 
   const { status: syncStatus, phase: syncPhase, progress: syncProgress, loading: syncLoading } = sync;
@@ -33,6 +36,11 @@ export default function Dashboard() {
   // query param (via replace, so refreshing cannot re-process it) and emits
   // a single piece of feedback. Guarded by a ref so it runs exactly once and
   // never triggers duplicate sync actions or redirect loops.
+  //
+  // If the user was heading somewhere specific before they signed in, that
+  // destination was remembered across the OAuth round-trip; honour it now
+  // that the session exists. The redirect REPLACES the entry so the callback
+  // URL is not left in the back stack.
   useEffect(() => {
     if (connectedHandled.current) return;
     if (searchParams.get('connected') === '1') {
@@ -41,8 +49,13 @@ export default function Dashboard() {
       next.delete('connected');
       setSearchParams(next, { replace: true });
       toast.push('success', 'GitHub connected.');
+
+      const destination = takePendingDestination();
+      if (destination !== '/') {
+        safeNavigate(navigate, destination, { replace: true });
+      }
     }
-  }, [searchParams, setSearchParams, toast]);
+  }, [navigate, searchParams, setSearchParams, toast]);
 
   if (loading) {
     return (

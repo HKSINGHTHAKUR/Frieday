@@ -4,7 +4,12 @@
  */
 const { getEnv } = require('./env');
 
-const AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';
+/**
+ * The GitHub authorization endpoint. Overridable for local dev / CI test
+ * doubles only (the same pattern as GITHUB_TOKEN_URL and GITHUB_API_USER_URL
+ * in config/env.js) — production must point at github.com.
+ */
+const DEFAULT_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';
 
 /**
  * @returns {{ clientId: string, clientSecret: string, scopes: string, callbackUrl: string, authorizeUrl: string, tokenUrl: string, userApiUrl: string, apiBase: string }}
@@ -16,7 +21,7 @@ function getGithubConfig() {
     clientSecret: env.GITHUB_CLIENT_SECRET,
     scopes: env.GITHUB_SCOPES,
     callbackUrl: env.GITHUB_CALLBACK_URL,
-    authorizeUrl: AUTHORIZE_URL,
+    authorizeUrl: env.GITHUB_AUTHORIZE_URL ?? DEFAULT_AUTHORIZE_URL,
     tokenUrl: env.GITHUB_TOKEN_URL,
     userApiUrl: env.GITHUB_API_USER_URL,
     apiBase: env.GITHUB_API_BASE,
@@ -31,4 +36,4 @@ function configStatus() {
   return getGithubConfig().clientId ? 'configured' : 'unconfigured';
 }
 
-module.exports = { getGithubConfig, configStatus, AUTHORIZE_URL };
+module.exports = { getGithubConfig, configStatus, DEFAULT_AUTHORIZE_URL };

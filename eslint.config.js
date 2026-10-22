@@ -87,6 +87,7 @@ module.exports = [
         ResizeObserver: 'readonly',
         IntersectionObserver: 'readonly',
         Event: 'readonly',
+        PopStateEvent: 'readonly',
         HTMLCanvasElement: 'readonly',
       },
     },
