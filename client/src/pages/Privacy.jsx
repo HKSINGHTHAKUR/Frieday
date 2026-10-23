@@ -46,7 +46,7 @@ export default function Privacy() {
           <p className="mt-8 text-sm text-text2 leading-relaxed">
             This Privacy Policy describes how Frieday collects, uses, stores, and protects your information
             when you connect your GitHub account. It applies to the Frieday service accessed at
-            <span className="font-medium">Owner decision — production URL.</span>
+            <span className="font-medium">https://frieday.onrender.com</span>.
           </p>
           <p className="mt-8 text-sm text-text2 leading-relaxed">
             Frieday is not sponsored, endorsed, or administered by GitHub. Your use of GitHub is also subject
@@ -211,17 +211,18 @@ export default function Privacy() {
           </p>
           <p className="mt-8 text-sm text-text2 leading-relaxed">
             <strong className="text-text">Hosting:</strong> The service is hosted on{' '}
-            <span className="font-medium">Owner decision — hosting provider.</span>.
+            <span className="font-medium">Render</span> (inferred from the onrender.com production domain;
+            confirm in your deployment configuration).
           </p>
           <p className="mt-8 text-sm text-text2 leading-relaxed">
-            <strong className="text-text">AI:</strong> Optional AI explanations (beta) are disabled by default
-            (<code className="mono text-sm">AI_ENABLED=false</code>). When enabled, an explanation request may
-            be sent to an LLM provider configured by the operator. No AI request is made when the setting is
-            off.{' '}
-            <span className="font-medium">
-              Owner decision — confirm whether AI explanations are offered and, if so, which provider and what
-              data is sent.
-            </span>
+            <strong className="text-text">AI:</strong> Optional AI explanations are disabled by default (
+            <code className="mono text-sm">AI_ENABLED=false</code>). When enabled, an explanation request may
+            be sent to an LLM provider configured by the operator (
+            <code className="mono text-sm">AI_PROVIDER</code>, <code className="mono text-sm">AI_MODEL</code>,
+            <code className="mono text-sm">AI_BASE_URL</code>). No AI request is made when the setting is off,
+            and AI only explains pre-computed insights — it never calculates new data or accesses raw commit
+            content. Confirm in your production environment whether AI explanations are enabled and which
+            provider and model are configured.
           </p>
         </section>
 
@@ -242,10 +243,7 @@ export default function Privacy() {
           </p>
           <p className="mt-8 text-sm text-text2 leading-relaxed">
             <strong className="text-text">Analytics:</strong> The current version of the service does not load
-            third-party analytics or tracking scripts.{' '}
-            <span className="font-medium">
-              Owner decision — confirm if any analytics provider is added before launch.
-            </span>
+            third-party analytics or tracking scripts.
           </p>
         </section>
 
